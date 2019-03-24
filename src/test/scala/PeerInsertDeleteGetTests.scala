@@ -3,7 +3,7 @@ package peer
 import akka.actor.ActorRef
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
-import peer.PeerActor.{Get, GetResult, Insert, JoinResponse}
+import peer.PeerActor._
 
 trait PeerInsertDeleteGetTests
   extends fixture.FunSpec
@@ -49,6 +49,21 @@ trait PeerInsertDeleteGetTests
             val client = TestProbe()
             val key = MockKey("key", 13)
 
+            client.send(peer, Get(key))
+            client.expectMsg(GetResult(key, None))
+          }
+        }
+
+        it("should be able to remove stored key") { _ =>
+          withPeer { (peer, _) =>
+            val client = TestProbe()
+            val key = MockKey("key", 13)
+
+            client.send(peer, Insert(key, 1))
+            client.send(peer, Get(key))
+            client.expectMsg(GetResult(key, Option(1)))
+
+            client.send(peer, Remove(key))
             client.send(peer, Get(key))
             client.expectMsg(GetResult(key, None))
           }

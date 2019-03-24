@@ -62,12 +62,13 @@ class PeerActor(val id: Long) extends DistributedHashTablePeer with ActorLogging
       log.debug(s"key $msg.key is not within range in $self")
       successorPeer forward msg
 
-    case Get(key) =>
-      log.debug(s"key $key is within range in $self. Retrieving the key")
-      sender ! GetResult(key, dataStore.get(key))
+    case msg: Operation =>
+      log.debug(s"key $msg.key is within range in $self.")
 
-    case Insert(key, value) =>
-      log.debug(s"key $key is within range in $self. Inserting the key")
-      dataStore += key -> value
+      msg match {
+        case Get(key) => sender ! GetResult(key, dataStore.get(key))
+        case Insert(key, value) => dataStore += key -> value
+        case Remove(key) => dataStore -= key
+      }
   }
 }
