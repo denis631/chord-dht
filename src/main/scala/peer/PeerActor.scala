@@ -26,18 +26,6 @@ trait DistributedHashTablePeer extends Actor {
       id < key.id && key.id <= successorId
     }
   }
-
-  def hash(key: String): Long = {
-    import java.math.BigInteger
-    import java.security.MessageDigest
-
-    val md = MessageDigest.getInstance("MD5")
-    val digest = md.digest(key.getBytes)
-    val bigInt = new BigInteger(1, digest)
-
-    val long = bigInt.longValue() % ringSize
-    if (long < 0) -long else long
-  }
 }
 
 object PeerActor {
@@ -70,22 +58,16 @@ class PeerActor(val id: Long) extends DistributedHashTablePeer with ActorLogging
   }
 
   def serving: Receive = {
-    case msg @ Get(key) =>
-      if (keyInPeerRange(key)) {
-        log.debug(s"key $key is within range in $self. Retrieving the key")
-        sender ! GetResult(key, dataStore.get(key))
-      } else {
-        log.debug(s"key $key is not within range in $self")
-        successorPeer forward msg
-      }
+    case msg: Operation if !keyInPeerRange(msg.key) =>
+      log.debug(s"key $msg.key is not within range in $self")
+      successorPeer forward msg
 
-    case msg @ Insert(key, value) =>
-      if (keyInPeerRange(key)) {
-        log.debug(s"key $key is within range in $self. Inserting the key")
-        dataStore += key -> value
-      } else {
-        log.debug(s"key $key is not within range in $self")
-        successorPeer forward msg
-      }
+    case Get(key) =>
+      log.debug(s"key $key is within range in $self. Retrieving the key")
+      sender ! GetResult(key, dataStore.get(key))
+
+    case Insert(key, value) =>
+      log.debug(s"key $key is within range in $self. Inserting the key")
+      dataStore += key -> value
   }
 }
