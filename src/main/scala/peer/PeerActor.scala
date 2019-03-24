@@ -5,7 +5,7 @@ import peer.PeerActor._
 
 trait DistributedHashTablePeer extends Actor {
   val id: Long
-  var dataStore: Map[String, Any]
+  var dataStore: Map[DataStoreKey, Any]
   var successor: (ActorRef, Long)
 
   val replicationFactor = 1
@@ -16,8 +16,15 @@ trait DistributedHashTablePeer extends Actor {
   }
 
   def successorId: Long = {
-    val succId = successor._2
-    if (succId < id) ringSize + succId else succId
+    successor._2
+  }
+
+  def keyInPeerRange(key: DataStoreKey): Boolean = {
+    if (successorId < id) {
+      (id < key.id && key.id <= ringSize-1) || (-1 < key.id && key.id <= successorId)
+    } else {
+      id < key.id && key.id <= successorId
+    }
   }
 
   def hash(key: String): Long = {
@@ -38,20 +45,20 @@ object PeerActor {
   case class JoinResponse(nearestSuccessor: ActorRef, successorId: Long)
 
   sealed trait Operation {
-    def key: String
+    def key: DataStoreKey
   }
-  case class Insert(key: String, value: Any) extends Operation
-  case class Remove(key: String) extends Operation
-  case class Get(key: String) extends Operation
+  case class Insert(key: DataStoreKey, value: Any) extends Operation
+  case class Remove(key: DataStoreKey) extends Operation
+  case class Get(key: DataStoreKey) extends Operation
 
   sealed trait OperationReply
-  case class GetResult(key: String, valueOption: Option[Any]) extends OperationReply
+  case class GetResult(key: DataStoreKey, valueOption: Option[Any]) extends OperationReply
 
   def props(id: Long): Props = Props(new PeerActor(id))
 }
 
 class PeerActor(val id: Long) extends DistributedHashTablePeer with ActorLogging {
-  var dataStore: Map[String, Any] = Map.empty
+  var dataStore: Map[DataStoreKey, Any] = Map.empty
   var successor: (ActorRef, Long) = (self, id)
 
   override def receive: Receive = joining
@@ -64,9 +71,7 @@ class PeerActor(val id: Long) extends DistributedHashTablePeer with ActorLogging
 
   def serving: Receive = {
     case msg @ Get(key) =>
-      val keyId = hash(key)
-
-      if (id < keyId && keyId <= successorId) {
+      if (keyInPeerRange(key)) {
         log.debug(s"key $key is within range in $self. Retrieving the key")
         sender ! GetResult(key, dataStore.get(key))
       } else {
@@ -75,9 +80,7 @@ class PeerActor(val id: Long) extends DistributedHashTablePeer with ActorLogging
       }
 
     case msg @ Insert(key, value) =>
-      val keyId = hash(key)
-
-      if (id < keyId && keyId <= successorId) {
+      if (keyInPeerRange(key)) {
         log.debug(s"key $key is within range in $self. Inserting the key")
         dataStore += key -> value
       } else {
