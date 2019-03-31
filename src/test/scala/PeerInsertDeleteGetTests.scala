@@ -20,7 +20,7 @@ trait PeerInsertDeleteGetTests
   describe("hash table peer") {
     describe("when joined") {
       describe("received key, which hashed id is not within its range") {
-        it("should forward it to the successor") { _ =>
+        it("should forward it to the successor") { _ => //FIXME: remove after implementing finger table
           withPeer { (peer, successor) =>
             val client = TestProbe()
             val key = MockKey("key", 5)
@@ -39,8 +39,9 @@ trait PeerInsertDeleteGetTests
             val key = MockKey("key", 13)
 
             client.send(peer, Insert(key, -1))
+            client.expectMsg(MutationAck(key))
             client.send(peer, Get(key))
-            client.expectMsg(GetResult(key, Option(-1)))
+            client.expectMsg(GetResponse(key, Option(-1)))
           }
         }
 
@@ -50,7 +51,7 @@ trait PeerInsertDeleteGetTests
             val key = MockKey("key", 13)
 
             client.send(peer, Get(key))
-            client.expectMsg(GetResult(key, None))
+            client.expectMsg(GetResponse(key, None))
           }
         }
 
@@ -60,12 +61,11 @@ trait PeerInsertDeleteGetTests
             val key = MockKey("key", 13)
 
             client.send(peer, Insert(key, 1))
-            client.send(peer, Get(key))
-            client.expectMsg(GetResult(key, Option(1)))
-
+            client.expectMsg(MutationAck(key))
             client.send(peer, Remove(key))
+            client.expectMsg(MutationAck(key))
             client.send(peer, Get(key))
-            client.expectMsg(GetResult(key, None))
+            client.expectMsg(GetResponse(key, None))
           }
         }
       }

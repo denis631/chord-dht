@@ -19,6 +19,8 @@ trait DistributedHashTablePeer extends Actor {
     successor._2
   }
 
+  def successorPeerForKey(key: DataStoreKey): ActorRef
+
   def keyInPeerRange(key: DataStoreKey): Boolean = {
     if (successorId < id) {
       (id < key.id && key.id <= ringSize-1) || (-1 < key.id && key.id <= successorId)
@@ -39,8 +41,9 @@ object PeerActor {
   case class Remove(key: DataStoreKey) extends Operation
   case class Get(key: DataStoreKey) extends Operation
 
-  sealed trait OperationReply
-  case class GetResult(key: DataStoreKey, valueOption: Option[Any]) extends OperationReply
+  sealed trait OperationResponse
+  case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
+  case class MutationAck(key: DataStoreKey) extends OperationResponse
 
   def props(id: Long): Props = Props(new PeerActor(id))
 }
@@ -48,6 +51,8 @@ object PeerActor {
 class PeerActor(val id: Long) extends DistributedHashTablePeer with ActorLogging {
   var dataStore: Map[DataStoreKey, Any] = Map.empty
   var successor: (ActorRef, Long) = (self, id)
+
+  override def successorPeerForKey(key: DataStoreKey): ActorRef = successorPeer
 
   override def receive: Receive = joining
 
@@ -60,15 +65,19 @@ class PeerActor(val id: Long) extends DistributedHashTablePeer with ActorLogging
   def serving: Receive = {
     case msg: Operation if !keyInPeerRange(msg.key) =>
       log.debug(s"key $msg.key is not within range in $self")
-      successorPeer forward msg
+      successorPeerForKey(msg.key) forward msg
 
     case msg: Operation =>
       log.debug(s"key $msg.key is within range in $self.")
 
       msg match {
-        case Get(key) => sender ! GetResult(key, dataStore.get(key))
-        case Insert(key, value) => dataStore += key -> value
-        case Remove(key) => dataStore -= key
+        case Get(key) => sender ! GetResponse(key, dataStore.get(key))
+        case Insert(key, value) =>
+          dataStore += key -> value
+          sender ! MutationAck(key)
+        case Remove(key) =>
+          dataStore -= key
+          sender ! MutationAck(key)
       }
   }
 }
