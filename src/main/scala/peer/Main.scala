@@ -9,8 +9,8 @@ object Main extends App {
   val actorA = system.actorOf(PeerActor.props(1))
   val actorB = system.actorOf(PeerActor.props(13))
 
-  actorA ! JoinResponse(actorB, 13)
-  actorB ! JoinResponse(actorA, 1)
+  actorA ! JoinResponse(SuccessorEntry(13, actorB))
+  actorB ! JoinResponse(SuccessorEntry(1, actorA))
 
   val key = peer.Key("ab")
   system.log.debug(key.toString)

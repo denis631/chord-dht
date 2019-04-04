@@ -10,26 +10,28 @@ import scala.concurrent._
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
+case class SuccessorEntry(id: Long, ref: ActorRef)
+
 trait DistributedHashTablePeer extends Actor {
   val id: Long
   var dataStore: Map[DataStoreKey, Any]
-  var successor: Option[(ActorRef, Long)]
+  var successor: Option[SuccessorEntry]
 
   val replicationFactor = 1
   val ringSize = 16
 
   def successorPeer: Option[ActorRef] = {
-    successor.map(_._1)
+    successor.map(_.ref)
   }
 
   def successorPeerForKey(key: DataStoreKey): Option[ActorRef]
 
   def keyInPeerRange(key: DataStoreKey): Try[Boolean] = {
-    val isInPeerRange = successor.map { case (_, successorId) =>
-      if (successorId < id) {
-        (id < key.id && key.id <= ringSize-1) || (-1 < key.id && key.id <= successorId)
+    val isInPeerRange = successor.map { entry =>
+      if (entry.id < id) {
+        (id < key.id && key.id <= ringSize - 1) || (-1 < key.id && key.id <= entry.id)
       } else {
-        id < key.id && key.id <= successorId
+        id < key.id && key.id <= entry.id
       }
     }
 
@@ -39,7 +41,7 @@ trait DistributedHashTablePeer extends Actor {
 
 object PeerActor {
   case class Join(id: Long)
-  case class JoinResponse(nearestSuccessor: ActorRef, successorId: Long)
+  case class JoinResponse(nearestSuccessor: SuccessorEntry)
 
   sealed trait Operation {
     def key: DataStoreKey
@@ -63,7 +65,7 @@ object PeerActor {
 
 class PeerActor(val id: Long, implicit val timeout: Timeout) extends DistributedHashTablePeer with ActorLogging {
   var dataStore: Map[DataStoreKey, Any] = Map.empty
-  var successor: Option[(ActorRef, Long)] = Option.empty
+  var successor: Option[SuccessorEntry] = Option.empty
 
   override def successorPeerForKey(key: DataStoreKey): Option[ActorRef] = successorPeer
 
@@ -97,8 +99,8 @@ class PeerActor(val id: Long, implicit val timeout: Timeout) extends Distributed
   override def receive: Receive = joining
 
   def joining: Receive = {
-    case JoinResponse(nearestSuccessor, nearestSuccessorId) =>
-      successor = Option((nearestSuccessor, nearestSuccessorId))
+    case JoinResponse(nearestSuccessorEntry) =>
+      successor = Option(nearestSuccessorEntry)
       context.become(serving)
       checkHeartbeat()
   }
