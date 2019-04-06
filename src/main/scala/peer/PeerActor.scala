@@ -1,12 +1,11 @@
 package peer
 
-import scala.concurrent.{ ExecutionContext, Promise }
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
-import akka.pattern.ask
 import akka.util.Timeout
+import peer.HeartbeatActor.{HeartbeatAck, HeartbeatMeta, HeartbeatNack}
 import peer.PeerActor._
 
-import scala.concurrent._
+import scala.language.postfixOps
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
@@ -17,8 +16,13 @@ trait DistributedHashTablePeer extends Actor {
   var dataStore: Map[DataStoreKey, Any]
   var successor: Option[SuccessorEntry]
 
+  //TODO: implement replication
   val replicationFactor = 1
+
   val ringSize = 16
+  //TODO: implement successor list
+//  var successorList: List[SuccessorEntry] = List.empty
+  val successorListSize: Int = math.sqrt(ringSize).toInt
 
   def successorPeer: Option[ActorRef] = {
     successor.map(_.ref)
@@ -55,46 +59,15 @@ object PeerActor {
   case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
   case class MutationAck(key: DataStoreKey) extends OperationResponse
 
-  sealed trait HeartbeatMessage
-  case object HeartbeatCheck extends HeartbeatMessage
-  case object HeartbeatAck extends HeartbeatMessage
-  case object HeartbeatNack extends HeartbeatMessage
-
   def props(id: Long, timeout: Timeout = Timeout(5 seconds)): Props = Props(new PeerActor(id, timeout))
 }
 
 class PeerActor(val id: Long, implicit val timeout: Timeout) extends DistributedHashTablePeer with ActorLogging {
   var dataStore: Map[DataStoreKey, Any] = Map.empty
   var successor: Option[SuccessorEntry] = Option.empty
+  var heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(timeout))
 
   override def successorPeerForKey(key: DataStoreKey): Option[ActorRef] = successorPeer
-
-  def clearSuccessorInfo(): Unit = {
-    successor = Option.empty
-  }
-
-  def createTimer(): Future[Unit] = {
-    implicit val ec: ExecutionContext = context.dispatcher
-    val deadline: Deadline = 1 seconds fromNow
-
-    def delay(dur:Deadline) = {
-      Try(Await.ready(Promise().future, dur.timeLeft))
-    }
-
-    Future { delay(deadline); () }
-  }
-
-  def checkHeartbeat(): Unit = {
-    successorPeer.foreach { successor =>
-      implicit val ec: ExecutionContext = context.dispatcher
-
-      createTimer()
-        .flatMap { _ => successor ? HeartbeatCheck }
-        .mapTo[HeartbeatAck.type]
-        .recover { case _ => HeartbeatNack }
-        .onComplete { f => self ! f.get }
-    }
-  }
 
   override def receive: Receive = joining
 
@@ -102,13 +75,13 @@ class PeerActor(val id: Long, implicit val timeout: Timeout) extends Distributed
     case JoinResponse(nearestSuccessorEntry) =>
       successor = Option(nearestSuccessorEntry)
       context.become(serving)
-      checkHeartbeat()
+      heartbeatActor ! HeartbeatMeta(nearestSuccessorEntry.ref)
   }
 
   def serving: Receive = {
-    case HeartbeatAck => checkHeartbeat()
+    case HeartbeatAck => log.debug(s"heartbeat succeeded for successor $successorPeer")
 
-    case HeartbeatNack => clearSuccessorInfo()
+    case HeartbeatNack => successor = Option.empty
 
     case msg: Operation => keyInPeerRange(msg.key) match {
       case Failure(_) =>

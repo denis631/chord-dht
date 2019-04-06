@@ -5,6 +5,7 @@ import akka.testkit.TestProbe
 
 import scala.concurrent.duration._
 import org.scalatest.{Matchers, fixture}
+import peer.HeartbeatActor.{HeartbeatAck, HeartbeatCheck}
 import peer.PeerActor._
 
 trait PeerHearbeatTests
