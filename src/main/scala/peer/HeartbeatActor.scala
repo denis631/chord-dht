@@ -25,20 +25,6 @@ class HeartbeatActor(val heartbeatTimeout: Timeout, val heartbeatTimeInterval: F
 
   var successorPeer: Option[ActorRef] = Option.empty
 
-  def checkHeartbeat(): Unit = {
-    implicit val timeout: Timeout = heartbeatTimeout
-
-    successorPeer.foreach { successor =>
-      (successor ? HeartbeatCheck)
-        .mapTo[HeartbeatAck.type]
-        .recover { case _ => HeartbeatNack }
-        .onComplete { f =>
-          context.parent ! f.get
-          scheduleHeartbeatCheck()
-        }
-    }
-  }
-
   def scheduleHeartbeatCheck(): Unit = {
     val _ = context.system.scheduler.scheduleOnce(heartbeatTimeInterval, self, HeartbeatRun)
   }
@@ -48,6 +34,17 @@ class HeartbeatActor(val heartbeatTimeout: Timeout, val heartbeatTimeInterval: F
       successorPeer = Option(peer)
       scheduleHeartbeatCheck()
 
-    case HeartbeatRun => checkHeartbeat()
+    case HeartbeatRun =>
+      implicit val timeout: Timeout = heartbeatTimeout
+
+      successorPeer.foreach { successor =>
+        (successor ? HeartbeatCheck)
+          .mapTo[HeartbeatAck.type]
+          .recover { case _ => HeartbeatNack }
+          .onComplete { f =>
+            context.parent ! f.get
+            scheduleHeartbeatCheck()
+          }
+      }
   }
 }
