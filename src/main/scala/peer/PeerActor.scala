@@ -30,22 +30,24 @@ trait DistributedHashTablePeer extends Actor {
 
   def successorPeerForKey(key: DataStoreKey): Option[ActorRef]
 
-  def keyInPeerRange(key: DataStoreKey): Try[Boolean] = {
+  def idInPeerRange(otherId: Long): Try[Boolean] = {
     val isInPeerRange = successor.map { entry =>
       if (entry.id < id) {
-        (id < key.id && key.id <= ringSize - 1) || (-1 < key.id && key.id <= entry.id)
+        (id < otherId && otherId <= ringSize - 1) || (-1 < otherId && otherId <= entry.id)
       } else {
-        id < key.id && key.id <= entry.id
+        id < otherId && otherId <= entry.id
       }
     }
 
     Try(isInPeerRange.get)
   }
+
+  def keyInPeerRange(key: DataStoreKey): Try[Boolean] = idInPeerRange(key.id)
 }
 
 object PeerActor {
-  case class Join(id: Long)
-  case class JoinResponse(nearestSuccessor: SuccessorEntry)
+  case class FindSuccessor(id: Long)
+  case class SuccessorFound(nearestSuccessor: SuccessorEntry)
 
   sealed trait Operation {
     def key: DataStoreKey
@@ -73,16 +75,23 @@ class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val hea
 
   override def successorPeerForKey(key: DataStoreKey): Option[ActorRef] = successorPeer
 
-  override def receive: Receive = joining
+  override def receive: Receive = serving
 
-  def joining: Receive = {
-    case JoinResponse(nearestSuccessorEntry) =>
+  def serving: Receive = {
+    case msg @ FindSuccessor(otherPeerId) =>
+      idInPeerRange(otherPeerId).foreach { isInRange =>
+        if (isInRange) {
+          successor.foreach(sender ! SuccessorFound(_))
+        } else {
+          successorPeer.foreach(_ forward msg)
+        }
+      }
+
+    case SuccessorFound(nearestSuccessorEntry) =>
       successor = Option(nearestSuccessorEntry)
       context.become(serving)
       heartbeatActor ! HeartbeatMeta(nearestSuccessorEntry.ref)
-  }
 
-  def serving: Receive = {
     case HeartbeatAck => log.debug(s"heartbeat succeeded for successor $successorPeer")
 
     case HeartbeatNack => successor = Option.empty
