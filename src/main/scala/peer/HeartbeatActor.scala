@@ -7,7 +7,6 @@ import peer.HeartbeatActor._
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
-import scala.language.postfixOps
 
 object HeartbeatActor {
   case class HeartbeatMeta(peer: ActorRef)
@@ -18,16 +17,16 @@ object HeartbeatActor {
   case object HeartbeatAck extends HeartbeatMessage
   case object HeartbeatNack extends HeartbeatMessage
 
-  def props(timeout: Timeout = Timeout(5 seconds)): Props = Props(new HeartbeatActor(timeout))
+  def props(heartbeatTimeInterval: FiniteDuration, heartbeatTimeout: Timeout): Props = Props(new HeartbeatActor(heartbeatTimeout, heartbeatTimeInterval))
 }
 
-class HeartbeatActor(val timeout: Timeout) extends Actor {
+class HeartbeatActor(val heartbeatTimeout: Timeout, val heartbeatTimeInterval: FiniteDuration) extends Actor {
   implicit val ec: ExecutionContext = context.dispatcher
 
   var successorPeer: Option[ActorRef] = Option.empty
 
   def checkHeartbeat(): Unit = {
-    implicit val t: Timeout = timeout
+    implicit val timeout: Timeout = heartbeatTimeout
 
     successorPeer.foreach { successor =>
       (successor ? HeartbeatCheck)
@@ -40,8 +39,8 @@ class HeartbeatActor(val timeout: Timeout) extends Actor {
     }
   }
 
-  def scheduleHeartbeatCheck(delay: FiniteDuration = 1 second): Unit = {
-    val _ = context.system.scheduler.scheduleOnce(delay, self, HeartbeatRun)
+  def scheduleHeartbeatCheck(): Unit = {
+    val _ = context.system.scheduler.scheduleOnce(heartbeatTimeInterval, self, HeartbeatRun)
   }
 
   override def receive: Receive = {

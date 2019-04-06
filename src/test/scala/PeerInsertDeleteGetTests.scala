@@ -5,7 +5,7 @@ import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
 import peer.HeartbeatActor.{HeartbeatAck, HeartbeatCheck}
 import peer.PeerActor._
-
+import scala.language.postfixOps
 import scala.concurrent.duration._
 
 trait PeerInsertDeleteGetTests
@@ -14,7 +14,7 @@ trait PeerInsertDeleteGetTests
     with fixture.ConfigMapFixture { this: PeerTestSuite =>
 
   def withPeer(test: (ActorRef, TestProbe) => Any): Unit = {
-    val peer = system.actorOf(PeerActor.props(11, 1 second))
+    val peer = system.actorOf(PeerActor.props(11, 1 second, 1 second))
     val successor = TestProbe()
     peer ! JoinResponse(SuccessorEntry(3, successor.ref))
     test(peer, successor)

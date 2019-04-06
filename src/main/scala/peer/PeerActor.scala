@@ -59,13 +59,17 @@ object PeerActor {
   case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
   case class MutationAck(key: DataStoreKey) extends OperationResponse
 
-  def props(id: Long, timeout: Timeout = Timeout(5 seconds)): Props = Props(new PeerActor(id, timeout))
+  def props(id: Long, heartbeatTimeInterval: FiniteDuration = 5 seconds, heartbeatTimeout: Timeout = Timeout(3 seconds)): Props =
+    Props(new PeerActor(id, heartbeatTimeInterval, heartbeatTimeout))
 }
 
-class PeerActor(val id: Long, implicit val timeout: Timeout) extends DistributedHashTablePeer with ActorLogging {
+class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val heartbeatTimeout: Timeout)
+  extends DistributedHashTablePeer
+    with ActorLogging {
+
   var dataStore: Map[DataStoreKey, Any] = Map.empty
   var successor: Option[SuccessorEntry] = Option.empty
-  var heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(timeout))
+  var heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(heartbeatTimeInterval, heartbeatTimeout))
 
   override def successorPeerForKey(key: DataStoreKey): Option[ActorRef] = successorPeer
 
