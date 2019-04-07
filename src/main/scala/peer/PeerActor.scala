@@ -4,17 +4,19 @@ import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.util.Timeout
 import peer.HeartbeatActor.{HeartbeatAck, HeartbeatMeta, HeartbeatNack}
 import peer.PeerActor._
+import peer.StabilizationActor.StabilizationMeta
 
 import scala.language.postfixOps
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
-case class SuccessorEntry(id: Long, ref: ActorRef)
+case class PeerEntry(id: Long, ref: ActorRef)
 
 trait DistributedHashTablePeer extends Actor {
   val id: Long
   var dataStore: Map[DataStoreKey, Any]
-  var successor: Option[SuccessorEntry]
+  var predecessor: Option[PeerEntry]
+  var successor: Option[PeerEntry]
 
   //TODO: implement replication
   val replicationFactor = 1
@@ -23,6 +25,8 @@ trait DistributedHashTablePeer extends Actor {
   //TODO: implement successor list
 //  var successorList: List[SuccessorEntry] = List.empty
   val successorListSize: Int = math.sqrt(ringSize).toInt
+
+  val peerEntry: PeerEntry = PeerEntry(id, self)
 
   def successorPeer: Option[ActorRef] = {
     successor.map(_.ref)
@@ -46,8 +50,10 @@ trait DistributedHashTablePeer extends Actor {
 }
 
 object PeerActor {
+  case object FindPredecessor
+  case class PredecessorFound(predecessor: PeerEntry)
   case class FindSuccessor(id: Long)
-  case class SuccessorFound(nearestSuccessor: SuccessorEntry)
+  case class SuccessorFound(nearestSuccessor: PeerEntry)
 
   sealed trait Operation {
     def key: DataStoreKey
@@ -61,23 +67,36 @@ object PeerActor {
   case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
   case class MutationAck(key: DataStoreKey) extends OperationResponse
 
-  def props(id: Long, heartbeatTimeInterval: FiniteDuration = 5 seconds, heartbeatTimeout: Timeout = Timeout(3 seconds)): Props =
-    Props(new PeerActor(id, heartbeatTimeInterval, heartbeatTimeout))
+  def props(id: Long, heartbeatTimeInterval: FiniteDuration = 5 seconds, heartbeatTimeout: Timeout = Timeout(3 seconds),
+            isUsingHeartbeat: Boolean = true, isUsingStabilization: Boolean = true): Props =
+    Props(new PeerActor(id, heartbeatTimeInterval, heartbeatTimeout, isUsingHeartbeat, isUsingStabilization))
 }
 
-class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val heartbeatTimeout: Timeout)
+class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val heartbeatTimeout: Timeout, isUsingHeartbeat: Boolean, isUsingStabilization: Boolean)
   extends DistributedHashTablePeer
     with ActorLogging {
 
   var dataStore: Map[DataStoreKey, Any] = Map.empty
-  var successor: Option[SuccessorEntry] = Option.empty
-  var heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(heartbeatTimeInterval, heartbeatTimeout))
+  var predecessor: Option[PeerEntry] = Option.empty
+  var successor: Option[PeerEntry] = Option.empty
+
+  // extra actors for maintenance
+  var heartbeatActor: Option[ActorRef] =
+    if (isUsingHeartbeat) Option(context.actorOf(HeartbeatActor.props(heartbeatTimeInterval, heartbeatTimeout))) else Option.empty
+  var stabilizationActor: Option[ActorRef] =
+    if (isUsingStabilization) Option(context.actorOf(StabilizationActor.props(peerEntry, heartbeatTimeInterval, heartbeatTimeout))) else Option.empty
 
   override def successorPeerForKey(key: DataStoreKey): Option[ActorRef] = successorPeer
 
   override def receive: Receive = serving
 
   def serving: Receive = {
+    case FindPredecessor =>
+      log.debug(s"sending current predecessor $predecessor to $sender")
+      predecessor.foreach(sender ! PredecessorFound(_))
+
+    case PredecessorFound(peer) => predecessor = Option(peer)
+
     case msg @ FindSuccessor(otherPeerId) =>
       idInPeerRange(otherPeerId).foreach { isInRange =>
         if (isInRange) {
@@ -90,25 +109,26 @@ class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val hea
     case SuccessorFound(nearestSuccessorEntry) =>
       successor = Option(nearestSuccessorEntry)
       context.become(serving)
-      heartbeatActor ! HeartbeatMeta(nearestSuccessorEntry.ref)
+      heartbeatActor.foreach(_ ! HeartbeatMeta(nearestSuccessorEntry.ref))
+      stabilizationActor.foreach(_ ! StabilizationMeta(nearestSuccessorEntry))
 
     case HeartbeatAck => log.debug(s"heartbeat succeeded for successor $successorPeer")
 
     case HeartbeatNack => successor = Option.empty
 
-    case msg: Operation => keyInPeerRange(msg.key) match {
+    case op: Operation => keyInPeerRange(op.key) match {
       case Failure(_) =>
-        log.debug(s"failed while checking whether key $msg.key is within range in $self or not")
-        sender ! OperationNack(msg.key)
+        log.debug(s"failed while checking whether key $op.key is within range in $self or not")
+        sender ! OperationNack(op.key)
 
       case Success(false) =>
-        log.debug(s"key $msg.key is not within range in $self")
-        successorPeerForKey(msg.key).foreach(_ forward msg)
+        log.debug(s"key $op.key is not within range in $self")
+        successorPeerForKey(op.key).foreach(_ forward op)
 
       case Success(true) =>
-        log.debug(s"key $msg.key is within range in $self.")
+        log.debug(s"key $op.key is within range in $self.")
 
-        msg match {
+        op match {
           case Get(key) => sender ! GetResponse(key, dataStore.get(key))
           case Insert(key, value) =>
             dataStore += key -> value

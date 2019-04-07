@@ -10,7 +10,8 @@ class PeerTestSuite
   extends PeerInsertDeleteGetTests
     with PeerHearbeatTests
     with FindSuccessorTests
-    with BeforeAndAfterAll {
+    with StabilizationTests
+with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")
 
