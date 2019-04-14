@@ -13,8 +13,8 @@ trait PeerInsertDeleteGetTests
     with Matchers
     with fixture.ConfigMapFixture { this: PeerTestSuite =>
 
-  def withPeerAndSuccessor(peerId: Long = 11, successorId: Long = 3)(isUsingHeartbeat: Boolean = false, isUsingStabilization: Boolean = false)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {
-    val peer = system.actorOf(PeerActor.props(peerId, 1 second, 1 second, isUsingHeartbeat, isUsingStabilization))
+  def withPeerAndSuccessor(peerId: Long = 11, successorId: Long = 3)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {
+    val peer = system.actorOf(PeerActor.props(peerId, 1 second, 1 second))
     val successor = TestProbe()
     val peerEntry = PeerEntry(peerId, peer)
     val entry = PeerEntry(successorId, successor.ref)
@@ -25,7 +25,7 @@ trait PeerInsertDeleteGetTests
   describe("hash table peer when joined") {
     describe("received key, which hashed id is not within its range") {
       it("should forward it to the successor") { _ => //FIXME: remove after implementing finger table
-        withPeerAndSuccessor()() { (_, peer, _, successor) =>
+        withPeerAndSuccessor() { (_, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 13)
           val msg = Get(key)
@@ -39,7 +39,7 @@ trait PeerInsertDeleteGetTests
 
     describe("received key, which hashed id is within its range") {
       it("should return the value for this key if stored") { _ =>
-        withPeerAndSuccessor()() { (peerEntry, peer, _, successor) =>
+        withPeerAndSuccessor() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 5)
 
@@ -56,7 +56,7 @@ trait PeerInsertDeleteGetTests
       }
 
       it("should return None for the key if not stored") { _ =>
-        withPeerAndSuccessor()() { (peerEntry, peer, _, successor) =>
+        withPeerAndSuccessor() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 5)
 
@@ -68,7 +68,7 @@ trait PeerInsertDeleteGetTests
       }
 
       it("should be able to remove stored key") { _ =>
-        withPeerAndSuccessor()() { (peerEntry, peer, _, successor) =>
+        withPeerAndSuccessor() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 5)
 

@@ -57,6 +57,7 @@ object PeerActor {
   case class SuccessorFound(nearestSuccessor: PeerEntry)
 
   case object Stabilize
+  case object Heartbeatify
 
   sealed trait Operation {
     def key: DataStoreKey
@@ -77,12 +78,11 @@ object PeerActor {
   case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
   case class MutationAck(key: DataStoreKey) extends OperationResponse
 
-  def props(id: Long, heartbeatTimeInterval: FiniteDuration = 5 seconds, heartbeatTimeout: Timeout = Timeout(3 seconds),
-            isUsingHeartbeat: Boolean = true, isUsingStabilization: Boolean = true): Props =
-    Props(new PeerActor(id, heartbeatTimeInterval, heartbeatTimeout, isUsingHeartbeat, isUsingStabilization))
+  def props(id: Long, heartbeatTimeInterval: FiniteDuration = 5 seconds, heartbeatTimeout: Timeout = Timeout(3 seconds)): Props =
+    Props(new PeerActor(id, heartbeatTimeInterval, heartbeatTimeout))
 }
 
-class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val heartbeatTimeout: Timeout, isUsingHeartbeat: Boolean, isUsingStabilization: Boolean)
+class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val heartbeatTimeout: Timeout)
   extends Actor
     with DistributedHashTablePeer
     with ActorLogging {
@@ -97,10 +97,8 @@ class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val hea
   implicit val ec: ExecutionContext = context.dispatcher
 
   // extra actors for maintenance
-  var heartbeatActor: Option[ActorRef] =
-    if (isUsingHeartbeat) Option(context.actorOf(HeartbeatActor.props(heartbeatTimeInterval, heartbeatTimeout))) else Option.empty
-  var stabilizationActor: Option[ActorRef] =
-    if (isUsingStabilization) Option(context.actorOf(StabilizationActor.props(peerEntry, heartbeatTimeInterval, heartbeatTimeout))) else Option.empty
+  var heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(heartbeatTimeInterval, heartbeatTimeout))
+  var stabilizationActor: ActorRef = context.actorOf(StabilizationActor.props(peerEntry, heartbeatTimeInterval, heartbeatTimeout))
 
   override def successorPeerForKey(key: DataStoreKey): Option[ActorRef] = successorPeer
 
@@ -136,11 +134,9 @@ class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val hea
       log.debug(s"successor found for $id via ${nearestSuccessorEntry.id}")
       successor = Option(nearestSuccessorEntry)
 
-    case Stabilize if successor.isDefined =>
-      successor.foreach { entry =>
-        heartbeatActor.foreach(_ ! HeartbeatRun(entry.ref))
-        stabilizationActor.foreach(_ ! StabilizationRun(entry))
-      }
+    case Heartbeatify if successor.isDefined => successorPeer.foreach(heartbeatActor ! HeartbeatRun(_))
+
+    case Stabilize if successor.isDefined => successor.foreach(stabilizationActor ! StabilizationRun(_))
 
     case op: HeartbeatMessage => op match {
       case HeartbeatCheck => sender ! HeartbeatAck

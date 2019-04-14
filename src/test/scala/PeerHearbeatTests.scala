@@ -16,11 +16,11 @@ trait PeerHearbeatTests
   describe("hash table peer, when joined and when sends heartbeat to successor") {
     describe("if successor doesn't reply") {
       it("the successor is cleared (not operational)") { _ =>
-        withPeerAndSuccessor()(isUsingHeartbeat = true) { (_, peer, _, successor) =>
+        withPeerAndSuccessor() { (_, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 13)
 
-          peer ! Stabilize
+          peer ! Heartbeatify
           successor.expectMsg(1500 millis, HeartbeatCheck)
 
           client.expectNoMessage(1500 millis) // wait for 1.5 seconds (expect a HeartbeatNack)
@@ -33,8 +33,8 @@ trait PeerHearbeatTests
 
     describe("if successor replies") {
       it("the successor is not cleared (still operational)") { _ =>
-        withPeerAndSuccessor()(isUsingHeartbeat = true) { (_, peer, _, successor) =>
-          peer ! Stabilize
+        withPeerAndSuccessor() { (_, peer, _, successor) =>
+          peer ! Heartbeatify
 
           successor.expectMsg(HeartbeatCheck)
           successor.reply(HeartbeatAck)
