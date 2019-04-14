@@ -3,7 +3,7 @@ package peer
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
 import peer.PeerActor._
-import peer.StabilizationActor.StabilizationMeta
+import peer.StabilizationActor.StabilizationRun
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
@@ -16,30 +16,32 @@ trait StabilizationTests
   describe("stabilization actor asks for predecessor of the successor node") {
     describe("if the successors predecessor is not sender") {
       it("notify the new successor about self as its predecessor") { _ =>
-        withPeerAndSuccessor()() { (peer, successorEntry, successor) =>
-          val senderPeerEntry = PeerEntry(11, peer)
-          val stabilizerActor = system.actorOf(StabilizationActor.props(senderPeerEntry, 1 second, 1 second))
+        withPeerAndSuccessor()() { (peerEntry, peer, successorEntry, successor) =>
+          val stabilizerActor = system.actorOf(StabilizationActor.props(peerEntry, 1 second, 1 second))
 
           val nodeInBetween = TestProbe()
           val nodeInBetweenPeerEntry = PeerEntry(13, nodeInBetween.ref)
 
-          stabilizerActor ! StabilizationMeta(successorEntry)
+          stabilizerActor ! StabilizationRun(successorEntry)
 
           successor.expectMsg(FindPredecessor)
           successor.reply(PredecessorFound(nodeInBetweenPeerEntry))
 
-          nodeInBetween.expectMsg(PredecessorFound(senderPeerEntry))
+          nodeInBetween.expectMsg(PredecessorFound(peerEntry))
+
+          val testNode = TestProbe()
+          testNode.send(peer, FindSuccessor(12))
+          testNode.expectMsg(SuccessorFound(nodeInBetweenPeerEntry))
         }
       }
     }
 
     describe("if the successor predecessor is nil") {
       it("notify the new successor about self as its predecessor") { _ =>
-        withPeerAndSuccessor()() { (peer, successorEntry, successor) =>
-          val senderPeerEntry = PeerEntry(11, peer)
+        withPeerAndSuccessor()() { (senderPeerEntry, _, successorEntry, successor) =>
           val stabilizerActor = system.actorOf(StabilizationActor.props(senderPeerEntry, 1 second, 1 second))
 
-          stabilizerActor ! StabilizationMeta(successorEntry)
+          stabilizerActor ! StabilizationRun(successorEntry)
 
           successor.expectMsg(FindPredecessor)
           successor.expectMsg(PredecessorFound(senderPeerEntry))
