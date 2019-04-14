@@ -7,7 +7,6 @@ import peer.PeerActor.{FindPredecessor, PredecessorFound, SuccessorFound}
 import peer.StabilizationActor.StabilizationRun
 
 import scala.concurrent.ExecutionContext
-import scala.concurrent.duration.{FiniteDuration, _}
 
 object StabilizationActor {
   case class StabilizationRun(successorPeer: PeerEntry)
@@ -27,7 +26,7 @@ class StabilizationActor(val parentPeerEntry: PeerEntry, val stabilizationTimeou
       (peer.ref ? FindPredecessor)(stabilizationTimeout)
         .mapTo[PredecessorFound]
         .map { case PredecessorFound(possibleSuccessor) =>
-          val isNewSuccessor = if (peer.id < parentPeerEntry.id) {
+          val isNewSuccessor = if (peer.id <= parentPeerEntry.id) {
             val ringSize = 16 //FIXME: fix this later
             (parentPeerEntry.id < possibleSuccessor.id && possibleSuccessor.id <= ringSize - 1) || (-1 < possibleSuccessor.id && possibleSuccessor.id < peer.id)
           } else {

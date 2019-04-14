@@ -25,8 +25,8 @@ trait PeerHearbeatTests
 
           client.expectNoMessage(1500 millis) // wait for 1.5 seconds (expect a HeartbeatNack)
 
-          client.send(peer, Get(key))
-          client.expectMsg(OperationNack(key))
+          client.send(peer, Get(key)) // the request should be forwarded, but the successor pointer is reset to self
+          client.expectMsg(GetResponse(key, Option.empty))
         }
       }
     }

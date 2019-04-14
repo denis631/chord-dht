@@ -1,20 +1,45 @@
 package peer
 
 import akka.actor.ActorSystem
+import akka.pattern.ask
+import akka.util.Timeout
 import peer.PeerActor._
 
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
+
 object Main extends App {
-  val system = ActorSystem.create()
+  implicit val system = ActorSystem.create()
+  implicit val ec = ExecutionContext.global
 
-  val actorA = system.actorOf(PeerActor.props(1))
-  val actorB = system.actorOf(PeerActor.props(13))
+  def doAfter(delay: FiniteDuration)(f: => Unit): Unit = system.scheduler.scheduleOnce(delay)(f)
 
-  actorA ! SuccessorFound(PeerEntry(13, actorB))
-  actorB ! SuccessorFound(PeerEntry(1, actorA))
+  val actorA = system.actorOf(PeerActor.props(5))
+  val actorB = system.actorOf(PeerActor.props(13, isSeed = true))
+
+  actorA ! JoinVia(actorB)
 
   val key = peer.Key("ab")
   system.log.debug(key.toString)
 
-  actorA ! Insert(key, 1)
-  actorA ! Get(key)
+  actorA ! Stabilize
+
+  doAfter(5 seconds) {
+    actorB ! Stabilize
+
+    doAfter(5 seconds) {
+      for {
+        (actor, msg) <- List((actorA, Insert(key, 1)), (actorB, Get(key)))
+        f <- (actor ? msg)(Timeout(1 second))
+      } println(f)
+
+      doAfter(2 seconds) {
+        (actorB ? Get(key))(Timeout(1 second)).foreach(println)
+
+        doAfter(2 seconds) {
+          system.terminate()
+        }
+      }
+    }
+  }
 }
