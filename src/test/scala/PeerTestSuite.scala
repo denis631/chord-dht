@@ -9,7 +9,9 @@ case class MockKey(key: String, override val id: Int) extends DataStoreKey
 class PeerTestSuite
   extends PeerInsertDeleteGetTests
     with PeerHearbeatTests
-    with BeforeAndAfterAll {
+    with FindSuccessorTests
+    with StabilizationTests
+with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")
 
