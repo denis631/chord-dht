@@ -33,7 +33,7 @@ trait DistributedHashTablePeer { this: Actor =>
     successor.map(_.ref)
   }
 
-  def successorPeerForKey(key: DataStoreKey): Option[ActorRef]
+  def successorPeerForId(id: Long): Option[ActorRef]
 
   def idInPeerRange(otherId: Long): Try[Boolean] = {
     val isInPeerRange = successor.map { entry =>
@@ -78,11 +78,11 @@ object PeerActor {
   case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
   case class MutationAck(key: DataStoreKey) extends OperationResponse
 
-  def props(id: Long, heartbeatTimeInterval: FiniteDuration = 5 seconds, heartbeatTimeout: Timeout = Timeout(3 seconds)): Props =
-    Props(new PeerActor(id, heartbeatTimeInterval, heartbeatTimeout))
+  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds)): Props =
+    Props(new PeerActor(id, operationTimeout, stabilizationTimeout))
 }
 
-class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val heartbeatTimeout: Timeout)
+class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout)
   extends Actor
     with DistributedHashTablePeer
     with ActorLogging {
@@ -92,15 +92,15 @@ class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val hea
   require(id < ringSize)
 
   var predecessor: Option[PeerEntry] = Option.empty
-  var successor: Option[PeerEntry] = Option.empty
+  var successor: Option[PeerEntry] = Option(peerEntry)
 
   implicit val ec: ExecutionContext = context.dispatcher
 
   // extra actors for maintenance
-  var heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(heartbeatTimeInterval, heartbeatTimeout))
-  var stabilizationActor: ActorRef = context.actorOf(StabilizationActor.props(peerEntry, heartbeatTimeInterval, heartbeatTimeout))
+  var heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(stabilizationTimeout))
+  var stabilizationActor: ActorRef = context.actorOf(StabilizationActor.props(peerEntry, stabilizationTimeout))
 
-  override def successorPeerForKey(key: DataStoreKey): Option[ActorRef] = successorPeer
+  override def successorPeerForId(id: Long): Option[ActorRef] = successorPeer
 
   private def operationToInternalMapping(op: Operation): InternalOp = {
     op match {
@@ -126,7 +126,7 @@ class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val hea
         if (isInRange) {
           successor.foreach(sender ! SuccessorFound(_))
         } else {
-          successorPeer.foreach(_ forward msg)
+          successorPeerForId(otherPeerId).foreach(_ forward msg)
         }
       }
 
@@ -155,10 +155,10 @@ class PeerActor(val id: Long, val heartbeatTimeInterval: FiniteDuration, val hea
     }
 
     case op: Operation =>
-      (self ? FindSuccessor(op.key.id))(heartbeatTimeout)
+      (self ? FindSuccessor(op.key.id))(operationTimeout)
         .mapTo[SuccessorFound]
         .flatMap { case SuccessorFound(entry) =>
-            (entry.ref ? operationToInternalMapping(op))(heartbeatTimeout)
+            (entry.ref ? operationToInternalMapping(op))(operationTimeout)
         }
         .recover { case _ => OperationNack(op.key) }
         .pipeTo(sender)

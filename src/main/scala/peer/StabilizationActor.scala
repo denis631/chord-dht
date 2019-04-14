@@ -12,10 +12,10 @@ import scala.concurrent.duration.{FiniteDuration, _}
 object StabilizationActor {
   case class StabilizationRun(successorPeer: PeerEntry)
 
-  def props(peerEntry: PeerEntry, stabilizationInterval: FiniteDuration = 3 seconds, stabilizationTimeout: Timeout): Props = Props(new StabilizationActor(peerEntry, stabilizationInterval, stabilizationTimeout))
+  def props(peerEntry: PeerEntry, stabilizationTimeout: Timeout): Props = Props(new StabilizationActor(peerEntry, stabilizationTimeout))
 }
 
-class StabilizationActor(val parentPeerEntry: PeerEntry, val stabilizationInterval: FiniteDuration, val stabilizationTimeout: Timeout) extends Actor {
+class StabilizationActor(val parentPeerEntry: PeerEntry, val stabilizationTimeout: Timeout) extends Actor {
   implicit val ec: ExecutionContext = context.dispatcher
 
   var successorPeer: Option[PeerEntry] = Option.empty

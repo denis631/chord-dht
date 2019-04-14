@@ -17,7 +17,7 @@ trait StabilizationTests
     describe("if the successors predecessor is not sender") {
       it("notify the new successor about self as its predecessor") { _ =>
         withPeerAndSuccessor() { (peerEntry, peer, successorEntry, successor) =>
-          val stabilizerActor = system.actorOf(StabilizationActor.props(peerEntry, 1 second, 1 second))
+          val stabilizerActor = system.actorOf(StabilizationActor.props(peerEntry, 1 second))
 
           val nodeInBetween = TestProbe()
           val nodeInBetweenPeerEntry = PeerEntry(13, nodeInBetween.ref)
@@ -39,7 +39,7 @@ trait StabilizationTests
     describe("if the successor predecessor is nil") {
       it("notify the new successor about self as its predecessor") { _ =>
         withPeerAndSuccessor() { (senderPeerEntry, _, successorEntry, successor) =>
-          val stabilizerActor = system.actorOf(StabilizationActor.props(senderPeerEntry, 1 second, 1 second))
+          val stabilizerActor = system.actorOf(StabilizationActor.props(senderPeerEntry, 1 second))
 
           stabilizerActor ! StabilizationRun(successorEntry)
 
