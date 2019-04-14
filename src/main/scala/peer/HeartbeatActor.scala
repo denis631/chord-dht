@@ -8,12 +8,18 @@ import peer.HeartbeatActor._
 import scala.concurrent.ExecutionContext
 
 object HeartbeatActor {
-  case class HeartbeatRun(peer: ActorRef)
-
   sealed trait HeartbeatMessage
   case object HeartbeatCheck extends HeartbeatMessage
+
+  case class HeartbeatRunForSuccessor(peer: ActorRef, idx: Int) extends HeartbeatMessage
+  case class HeartbeatRunForPredecessor(peer: ActorRef) extends HeartbeatMessage
+
   case object HeartbeatAck extends HeartbeatMessage
-  case object HeartbeatNack extends HeartbeatMessage
+  case class HeartbeatAckForSuccessor(idx: Int) extends HeartbeatMessage
+  case object HeartbeatAckForPredecessor extends HeartbeatMessage
+
+  case class HeartbeatNackForSuccessor(idx: Int) extends HeartbeatMessage
+  case object HeartbeatNackForPredecessor extends HeartbeatMessage
 
   def props(heartbeatTimeout: Timeout): Props = Props(new HeartbeatActor(heartbeatTimeout))
 }
@@ -21,15 +27,19 @@ object HeartbeatActor {
 class HeartbeatActor(val heartbeatTimeout: Timeout) extends Actor {
   implicit val ec: ExecutionContext = context.dispatcher
 
-  var successorPeer: Option[ActorRef] = Option.empty
-
   override def receive: Receive = {
-    case HeartbeatRun(peer) =>
-      successorPeer = Option(peer)
-
-      (peer ? HeartbeatCheck)(heartbeatTimeout)
+    case HeartbeatRunForSuccessor(peer, idx) =>
+      val _ = (peer ? HeartbeatCheck)(heartbeatTimeout)
         .mapTo[HeartbeatAck.type]
-        .recover { case _ => HeartbeatNack }
+        .map { _ => HeartbeatAckForSuccessor(idx) }
+        .recover { case _ => HeartbeatNackForSuccessor(idx) }
+        .pipeTo(context.parent)
+
+    case HeartbeatRunForPredecessor(peer) =>
+      val _ = (peer ? HeartbeatCheck)(heartbeatTimeout)
+        .mapTo[HeartbeatAck.type]
+        .map { _ => HeartbeatAckForPredecessor }
+        .recover { case _ => HeartbeatNackForPredecessor }
         .pipeTo(context.parent)
   }
 }

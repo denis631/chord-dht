@@ -22,6 +22,15 @@ trait PeerInsertDeleteGetTests
     test(peerEntry, peer, entry, successor)
   }
 
+  def withPeerAndPredecessor(peerId: Long = 11, predecessorId: Long = 3)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {
+    val peer = system.actorOf(PeerActor.props(peerId, 1 second, 1 second, isSeed = true))
+    val predecessor = TestProbe()
+    val peerEntry = PeerEntry(peerId, peer)
+    val entry = PeerEntry(predecessorId, predecessor.ref)
+    peer ! PredecessorFound(entry)
+    test(peerEntry, peer, entry, predecessor)
+  }
+
   describe("hash table peer when joined") {
     describe("received key, which hashed id is not within its range") {
       it("should forward it to the successor") { _ => //FIXME: remove after implementing finger table
