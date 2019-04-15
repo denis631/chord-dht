@@ -15,16 +15,11 @@ case class PeerEntry(id: Long, ref: ActorRef)
 
 trait DistributedHashTablePeer { this: Actor with ActorLogging =>
   val id: Long
-
-  //TODO: implement replication
-  val replicationFactor = 1
-
+  val replicationFactor = 1 //TODO: implement replication
   val ringSize = 16
-  //TODO: implement successor list
-//  var successorList: List[SuccessorEntry] = List.empty
   val successorListSize: Int = math.sqrt(ringSize).toInt
 
-  val peerEntry: PeerEntry = PeerEntry(id, self)
+  def peerEntry: PeerEntry = PeerEntry(id, self)
 
   def idInPeerRange(successorId: Long, otherId: Long): Boolean = {
     val isInPeerRange = if (successorId <= id) {
@@ -68,11 +63,11 @@ object PeerActor {
   case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
   case class MutationAck(key: DataStoreKey) extends OperationResponse
 
-  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), isSeed: Boolean = false): Props =
-    Props(new PeerActor(id, operationTimeout, stabilizationTimeout, isSeed))
+  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), isSeed: Boolean = false, selfStabilize: Boolean = false): Props =
+    Props(new PeerActor(id, operationTimeout, stabilizationTimeout, isSeed, selfStabilize))
 }
 
-class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, isSeed: Boolean = false)
+class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, isSeed: Boolean = false, selfStabilize: Boolean = false)
   extends Actor
     with DistributedHashTablePeer
     with ActorLogging {
@@ -82,6 +77,11 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
   require(id < ringSize)
 
   implicit val ec: ExecutionContext = context.dispatcher
+
+  if (selfStabilize) {
+    context.system.scheduler.schedule(5 seconds, 5 seconds, self, Heartbeatify)
+    context.system.scheduler.schedule(5 seconds, 5 seconds, self, Stabilize)
+  }
 
   // extra actors for maintenance
   val heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(stabilizationTimeout))
