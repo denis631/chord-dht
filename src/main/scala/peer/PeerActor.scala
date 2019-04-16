@@ -101,8 +101,10 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
     }
   }
 
-  private def insertSoOrderIsPreserved(coll: List[PeerEntry], item: PeerEntry): List[PeerEntry] = {
-    coll.takeWhile { elem => elem.id < item.id } ++ List(item) ++ coll.dropWhile { elem => elem.id < item.id }
+  private def sortPeerEntries(coll: List[PeerEntry]): List[PeerEntry] = {
+    coll.sortBy { entry =>
+      if (entry.id < peerEntry.id) entry.id + ringSize else entry.id
+    }
   }
 
   override def receive: Receive = if(isSeed) serving(Map.empty, List(peerEntry), Option.empty) else joining(Map.empty)
@@ -134,12 +136,9 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
         successorEntries.head.ref forward msg //TODO: use fingertable later
       }
 
-    case SuccessorFound(nearestSuccessorEntry) if successorEntries.length < requiredSuccessorListLength =>
+    case SuccessorFound(nearestSuccessorEntry) if !successorEntries.contains(nearestSuccessorEntry) && nearestSuccessorEntry.id != peerEntry.id =>
+      val newSuccessorList = sortPeerEntries(nearestSuccessorEntry :: successorEntries.filter(_.id != peerEntry.id )).take(requiredSuccessorListLength)
       log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
-
-      val newSuccessorList = if (successorEntries.contains(nearestSuccessorEntry)) successorEntries
-        else insertSoOrderIsPreserved(successorEntries.filter { entry => entry.id != peerEntry.id }, nearestSuccessorEntry)
-
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
       context.become(serving(dataStore, newSuccessorList, predecessor))
 
