@@ -15,8 +15,8 @@ object Main extends App {
 
   def doAfter(delay: FiniteDuration)(f: => Unit): Unit = system.scheduler.scheduleOnce(delay)(f)
 
-  val actorA = system.actorOf(PeerActor.props(5, selfStabilize = true))
-  val actorB = system.actorOf(PeerActor.props(13, isSeed = true, selfStabilize = true))
+  val actorA = system.actorOf(PeerActor.props(5, stabilizationDuration = 2 seconds, selfStabilize = true))
+  val actorB = system.actorOf(PeerActor.props(13, stabilizationDuration = 2 seconds, isSeed = true, selfStabilize = true))
 
   actorA ! JoinVia(actorB)
 

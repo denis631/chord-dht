@@ -1,9 +1,9 @@
-package peer
+package peer.helperActors
 
-import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.{ask, pipe}
+import akka.actor.{Actor, ActorRef, Props}
 import akka.util.Timeout
-import peer.HeartbeatActor._
+import peer.helperActors.HeartbeatActor._
 
 import scala.concurrent.ExecutionContext
 

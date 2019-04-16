@@ -1,10 +1,11 @@
-package peer
+package peer.helperActors
 
-import akka.actor.{Actor, Props}
 import akka.pattern.ask
+import akka.actor.{Actor, Props}
 import akka.util.Timeout
 import peer.PeerActor.{FindPredecessor, PredecessorFound, SuccessorFound}
-import peer.StabilizationActor.StabilizationRun
+import peer.PeerEntry
+import peer.helperActors.StabilizationActor.StabilizationRun
 
 import scala.concurrent.ExecutionContext
 

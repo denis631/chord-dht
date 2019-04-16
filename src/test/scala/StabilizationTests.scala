@@ -3,7 +3,8 @@ package peer
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
 import peer.PeerActor._
-import peer.StabilizationActor.StabilizationRun
+import peer.helperActors.StabilizationActor
+import peer.helperActors.StabilizationActor.StabilizationRun
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
