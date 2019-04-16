@@ -2,8 +2,8 @@ package peer
 
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
-import peer.HeartbeatActor.{HeartbeatAck, HeartbeatCheck}
 import peer.PeerActor._
+import peer.helperActors.HeartbeatActor.{HeartbeatAck, HeartbeatCheck}
 
 import scala.concurrent.duration._
 import scala.language.postfixOps

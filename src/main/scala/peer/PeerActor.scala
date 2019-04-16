@@ -1,11 +1,12 @@
 package peer
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props, Stash}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
-import peer.HeartbeatActor._
 import peer.PeerActor._
-import peer.StabilizationActor.StabilizationRun
+import peer.helperActors.HeartbeatActor._
+import peer.helperActors.StabilizationActor.StabilizationRun
+import peer.helperActors.{HeartbeatActor, StabilizationActor}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -15,16 +16,11 @@ case class PeerEntry(id: Long, ref: ActorRef)
 
 trait DistributedHashTablePeer { this: Actor with ActorLogging =>
   val id: Long
-
-  //TODO: implement replication
-  val replicationFactor = 1
-
+  val replicationFactor = 1 //TODO: implement replication
   val ringSize = 16
-  //TODO: implement successor list
-//  var successorList: List[SuccessorEntry] = List.empty
   val successorListSize: Int = math.sqrt(ringSize).toInt
 
-  val peerEntry: PeerEntry = PeerEntry(id, self)
+  def peerEntry: PeerEntry = PeerEntry(id, self)
 
   def idInPeerRange(successorId: Long, otherId: Long): Boolean = {
     val isInPeerRange = if (successorId <= id) {
@@ -68,11 +64,11 @@ object PeerActor {
   case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
   case class MutationAck(key: DataStoreKey) extends OperationResponse
 
-  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), isSeed: Boolean = false): Props =
-    Props(new PeerActor(id, operationTimeout, stabilizationTimeout, isSeed))
+  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), stabilizationDuration: FiniteDuration = 5 seconds, isSeed: Boolean = false, selfStabilize: Boolean = false): Props =
+    Props(new PeerActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, selfStabilize))
 }
 
-class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, isSeed: Boolean = false)
+class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, val stabilizationDuration: FiniteDuration, isSeed: Boolean, selfStabilize: Boolean)
   extends Actor
     with DistributedHashTablePeer
     with ActorLogging {
@@ -82,6 +78,11 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
   require(id < ringSize)
 
   implicit val ec: ExecutionContext = context.dispatcher
+
+  if (selfStabilize) {
+    context.system.scheduler.schedule(0 seconds, stabilizationDuration, self, Heartbeatify)
+    context.system.scheduler.schedule(0 seconds, stabilizationDuration, self, Stabilize)
+  }
 
   // extra actors for maintenance
   val heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(stabilizationTimeout))
@@ -114,7 +115,7 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
       predecessor.foreach(sender ! PredecessorFound(_))
 
     case PredecessorFound(peer) =>
-      log.debug(s"predecessor found for node $id <- ${peer.id}")
+      log.debug(s"predecessor found for node ${peer.id} <- $id")
       context.become(serving(dataStore, successorEntries, Option(peer)))
 
     case msg @ FindSuccessor(otherPeerId) =>
