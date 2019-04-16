@@ -5,7 +5,7 @@ import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import peer.DHTClient.OperationToDHT
 import peer.helperActors.RetriableActor
-
+import scala.language.postfixOps
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Promise}
 
