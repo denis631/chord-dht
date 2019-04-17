@@ -101,12 +101,6 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
     }
   }
 
-  private def sortPeerEntries(coll: List[PeerEntry]): List[PeerEntry] = {
-    coll.sortBy { entry =>
-      if (entry.id < peerEntry.id) entry.id + ringSize else entry.id
-    }
-  }
-
   override def receive: Receive = if(isSeed) serving(Map.empty, List(peerEntry), Option.empty) else joining(Map.empty)
 
   def joining(dataStore: Map[DataStoreKey, Any]): Receive = {
@@ -137,7 +131,13 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
       }
 
     case SuccessorFound(nearestSuccessorEntry) if !successorEntries.contains(nearestSuccessorEntry) && nearestSuccessorEntry.id != peerEntry.id =>
-      val newSuccessorList = sortPeerEntries(nearestSuccessorEntry :: successorEntries.filter(_.id != peerEntry.id )).take(requiredSuccessorListLength)
+      val newSuccessorList =
+        nearestSuccessorEntry :: successorEntries.filter(_.id != peerEntry.id )
+        .sortBy { entry =>
+          if (entry.id < peerEntry.id) entry.id + ringSize else entry.id
+        }
+        .take(requiredSuccessorListLength)
+
       log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
       context.become(serving(dataStore, newSuccessorList, predecessor))
@@ -145,9 +145,7 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
     case op: HelperOperation => op match {
       case Heartbeatify =>
         predecessor.map(_.ref).foreach(heartbeatActor ! HeartbeatRunForPredecessor(_))
-        successorEntries.zipWithIndex.foreach { case (entry, idx) =>
-          heartbeatActor ! HeartbeatRunForSuccessor(entry.ref, idx)
-        }
+        successorEntries.foreach(heartbeatActor ! HeartbeatRunForSuccessor(_))
 
       case Stabilize => stabilizationActor ! StabilizationRun(successorEntries.head)
 
@@ -159,11 +157,11 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
 
     case op: HeartbeatMessage => op match {
       case HeartbeatCheck => sender ! HeartbeatAck
-      case HeartbeatAckForSuccessor(idx) => log.debug(s"heartbeat succeeded for successor ${successorEntries(idx)}. checked by node $id")
+      case HeartbeatAckForSuccessor(successorEntry) => log.debug(s"heartbeat succeeded for successor $successorEntry in successor entries list $successorEntries. checked by node $id")
       case HeartbeatAckForPredecessor => log.debug(s"heartbeat succeeded for predecessor $predecessor. checked by node $id")
-      case HeartbeatNackForSuccessor(idx) =>
-        log.debug(s"heartbeat failed for successor at index $idx of node $id")
-        val listWithoutItemAtIdx = successorEntries.take(idx) ++ successorEntries.drop(idx+1)
+      case HeartbeatNackForSuccessor(successorEntry) =>
+        log.debug(s"heartbeat failed for successor at index ${successorEntry.id} of node $id")
+        val listWithoutItemAtIdx = successorEntries.filter(_.id != successorEntry.id)
         val newSuccessorEntries = if (listWithoutItemAtIdx.isEmpty) List(peerEntry) else listWithoutItemAtIdx
         context.become(serving(dataStore, newSuccessorEntries, predecessor))
       case HeartbeatNackForPredecessor =>
