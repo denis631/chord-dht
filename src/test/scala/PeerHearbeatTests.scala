@@ -1,17 +1,47 @@
 package peer
 
-import scala.language.postfixOps
 import akka.testkit.TestProbe
+import org.scalatest.{Matchers, fixture}
+import peer.PeerActor._
+import peer.helperActors.HeartbeatActor.{HeartbeatAck, HeartbeatCheck}
 
 import scala.concurrent.duration._
-import org.scalatest.{Matchers, fixture}
-import peer.HeartbeatActor.{HeartbeatAck, HeartbeatCheck}
-import peer.PeerActor._
+import scala.language.postfixOps
 
 trait PeerHearbeatTests
   extends fixture.FunSpec
   with Matchers
   with fixture.ConfigMapFixture { this: PeerTestSuite =>
+
+  describe("hash table peer, when joined and stabilized wants to send hearbeat to predecessor") {
+    describe("if predecessor doesn't reply") {
+      it("the predecessor of the node should be nil") { _ =>
+        withPeerAndPredecessor() { (_, peer, _, predecessor) =>
+          peer ! Heartbeatify
+          predecessor.expectMsg(HeartbeatCheck)
+          predecessor.expectNoMessage(1.5 seconds)
+
+          val client = TestProbe()
+          client.send(peer, FindPredecessor)
+          client.expectNoMessage()
+        }
+      }
+    }
+
+    describe("if predecessor replies") {
+      it("it should not be nil") { _ =>
+        withPeerAndPredecessor() { (_, peer, predecessorEntry, predecessor) =>
+          peer ! Heartbeatify
+          predecessor.expectMsg(HeartbeatCheck)
+          predecessor.reply(HeartbeatAck)
+
+          val client = TestProbe()
+          client.send(peer, FindPredecessor)
+          client.expectMsg(PredecessorFound(predecessorEntry))
+        }
+      }
+    }
+  }
 
   describe("hash table peer, when joined and when sends heartbeat to successor") {
     describe("if successor doesn't reply") {

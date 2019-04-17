@@ -5,6 +5,7 @@ import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
 import scala.concurrent.duration._
 import peer.PeerActor._
+import peer.helperActors.HeartbeatActor.HeartbeatNackForSuccessor
 
 trait FindSuccessorTests
   extends fixture.FunSpec
@@ -44,4 +45,39 @@ trait FindSuccessorTests
       }
     }
 
+    describe("node has a successor list of next 2 nodes") {
+      describe("if new successor id is smaller than the previous one") {
+        it("its successor list order is adapted") { _ =>
+          withPeerAndSuccessor() { (peerEntry, peer, successorEntry, _) =>
+            val newSuccessor = TestProbe()
+            val newSuccessorPeerEntry = PeerEntry(13, newSuccessor.ref)
+
+            val client = TestProbe()
+
+            peer ! SuccessorFound(newSuccessorPeerEntry)
+
+            client.send(peer, FindSuccessor(peerEntry.id + 1))
+            client.expectMsg(SuccessorFound(newSuccessorPeerEntry))
+          }
+        }
+      }
+
+      describe("if next successor dies") {
+        it("successor list should update and the new successor should be set") { _ =>
+          withPeerAndSuccessor() { (peerEntry, peer, successorEntry, _) =>
+            val secondSuccessor = TestProbe()
+            val secondSuccessorPeerEntry = PeerEntry(6, secondSuccessor.ref)
+
+            val client = TestProbe()
+
+            peer ! SuccessorFound(secondSuccessorPeerEntry)
+
+            peer ! HeartbeatNackForSuccessor(successorEntry)
+
+            client.send(peer, FindSuccessor(peerEntry.id+1))
+            client.expectMsg(SuccessorFound(secondSuccessorPeerEntry))
+          }
+        }
+      }
+    }
 }

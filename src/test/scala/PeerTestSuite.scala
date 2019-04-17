@@ -11,7 +11,8 @@ class PeerTestSuite
     with PeerHearbeatTests
     with FindSuccessorTests
     with StabilizationTests
-with BeforeAndAfterAll {
+    with DHTClientTests
+    with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")
 

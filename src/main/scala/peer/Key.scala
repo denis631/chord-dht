@@ -6,7 +6,7 @@ trait DataStoreKey {
 }
 
 case class Key(key: String) extends DataStoreKey {
-  override def hashCode(): Int = {
+  def md5Hashing(str: String): Int = {
     import java.math.BigInteger
     import java.security.MessageDigest
 
@@ -16,6 +16,8 @@ case class Key(key: String) extends DataStoreKey {
 
     bigInt.intValue().abs
   }
+
+  override def hashCode(): Int = md5Hashing(key)
 
   override def toString: String = s"key: $key | id: $id"
 }
