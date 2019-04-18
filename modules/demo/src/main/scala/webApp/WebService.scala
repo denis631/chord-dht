@@ -1,11 +1,12 @@
 package webApp
 
-import akka.actor.{Actor, ActorSystem, Props}
+import akka.NotUsed
+import akka.actor.ActorSystem
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
-import akka.http.scaladsl.model.ws.{Message, TextMessage}
+import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server.{Directives, Route}
-import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
+import akka.stream.scaladsl.{Flow, Sink, Source}
+import akka.stream.{ActorMaterializer, OverflowStrategy}
 import spray.json.DefaultJsonProtocol
 
 final case class Entry(id: Int)
@@ -29,23 +30,14 @@ class WebService extends Directives with JsonSupport {
   class DHTMonitor {
     val bufferSize = 100
 
-    //if the buffer fills up then this strategy drops the oldest elements
-    //upon the arrival of a new element.
-    val overflowStrategy = akka.stream.OverflowStrategy.dropHead
-
-    val queue = Source
-      .queue[Event](bufferSize, overflowStrategy)
+    val (inputQueue, queueSource) = Source
+      .queue[Event](bufferSize, OverflowStrategy.dropHead)
       .via(eventsToMessagesFlow)
+      .preMaterialize()
 
-    val inputQueue = queue.toMat(Sink.foreach(x => println(s"completed $x")))(Keep.left).run()
+    def updateEntry(entry: Entry): Unit = inputQueue offer NodeCreated(entry.id, entry.id)
 
-    def eventsFlow: Flow[Message, Message, _] = Flow.fromSinkAndSource(Sink.foreach(println), queue)
-
-    def updateEntry(entry: Entry): Unit = inputQueue offer SuccessorUpdate(entry.id, entry.id)
-
-    //      Flow(Source.actorRef[Message](5, OverflowStrategy.fail))
-
-    def eventsToMessagesFlow = Flow[Event].map {
+    def eventsToMessagesFlow: Flow[Event, TextMessage.Strict, NotUsed] = Flow[Event].map {
       case NodeCreated(nodeId, successorId) => TextMessage(
         s"""{
            |"type": "NodeCreated",
@@ -74,17 +66,20 @@ class WebService extends Directives with JsonSupport {
       }
     } ~
     pathPrefix("node") {
-      post {
-        entity(as[Entry]) { entry =>
-          dhtMonitor.updateEntry(entry)
-          complete("ok")
-        }
+      get {
+        dhtMonitor.updateEntry(Entry(63))
+        complete("ok")
       }
+//      post {
+//        entity(as[Entry]) { entry =>
+//          dhtMonitor.updateEntry(entry)
+//          complete("ok")
+//        }
+//      }
     } ~
     pathEndOrSingleSlash {
       get {
-        handleWebSocketMessages(dhtMonitor.eventsFlow)
+        handleWebSocketMessages(Flow.fromSinkAndSource(Sink.ignore, dhtMonitor.queueSource))
       }
     }
-
 }
