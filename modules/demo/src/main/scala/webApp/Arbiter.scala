@@ -1,5 +1,0 @@
-package webApp
-
-class Arbiter {
-
-}

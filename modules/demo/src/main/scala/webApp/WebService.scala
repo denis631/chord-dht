@@ -6,7 +6,7 @@ import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server.{Directives, Route}
 import akka.stream.scaladsl.{Flow, Sink, Source}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
-import peer.{Entries, JsonSupport, PeerStatus}
+import peer.{JsonSupport, PeerStatus}
 
 class WebService extends Directives with JsonSupport {
 
@@ -38,7 +38,7 @@ class WebService extends Directives with JsonSupport {
     pathPrefix("nodes") {
       pathEndOrSingleSlash {
         get {
-          complete(Entries(List())) //TODO: show for all clients same dht state
+          complete("""{"items": []}""") //TODO: show for all clients same dht state
         }
       }
     } ~
