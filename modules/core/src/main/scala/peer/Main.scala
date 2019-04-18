@@ -1,40 +1,20 @@
 package peer
 
-import scala.language.postfixOps
 import akka.actor.ActorSystem
-import akka.pattern.ask
-import akka.util.Timeout
 import peer.PeerActor._
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 object Main extends App {
   implicit val system = ActorSystem.create()
   implicit val ec = ExecutionContext.global
 
-  def doAfter(delay: FiniteDuration)(f: => Unit): Unit = system.scheduler.scheduleOnce(delay)(f)
+  val seed = system.actorOf(PeerActor.props(13, stabilizationDuration = 500 millis, isSeed = true, selfStabilize = true))
+  val newPeerIds = List(1,4,8,25,33,46,59)
 
-  val actorA = system.actorOf(PeerActor.props(5, stabilizationDuration = 2 seconds, selfStabilize = true))
-  val actorB = system.actorOf(PeerActor.props(13, stabilizationDuration = 2 seconds, isSeed = true, selfStabilize = true))
-
-  actorA ! JoinVia(actorB)
-
-  val key = peer.Key("ab")
-  system.log.debug(key.toString)
-
-  doAfter(10 seconds) {
-    for {
-      (actor, msg) <- List((actorA, Insert(key, 1)), (actorB, Get(key)))
-      f <- (actor ? msg)(Timeout(1 second))
-    } println(f)
-
-    doAfter(2 seconds) {
-      (actorB ? Get(key)) (Timeout(1 second)).foreach(println)
-
-      doAfter(2 seconds) {
-        val _ = system.terminate()
-      }
-    }
-  }
+  newPeerIds
+    .map { id => system.actorOf(PeerActor.props(id, stabilizationDuration = 500 millis, selfStabilize = true)) }
+    .foreach { actor => actor ! JoinVia(seed) }
 }

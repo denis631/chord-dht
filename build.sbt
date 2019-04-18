@@ -40,14 +40,13 @@ lazy val core = project.in(file("modules/core"))
 
     "org.scalacheck"           %% "scalacheck"               % "1.13.5"    % Test,
     "junit"                    % "junit"                     % "4.10"      % Test,
-    "org.scalatest"            %% "scalatest"                % "3.0.5"     % Test
+    "org.scalatest"            %% "scalatest"                % "3.0.5"     % Test,
+
+    "com.typesafe.akka"        %% "akka-http"               % akkaHttpVersion,
+    "com.typesafe.akka"        %% "akka-http-testkit"       % akkaHttpVersion % Test,
+    "com.typesafe.akka"        %% "akka-http-spray-json"    % akkaHttpVersion
   ))
 
 lazy val webApp = project.in(file("modules/demo"))
   .dependsOn(core)
   .settings(commonSettings: _*)
-  .settings(libraryDependencies ++= Seq (
-    "com.typesafe.akka"        %% "akka-http"               % akkaHttpVersion,
-    "com.typesafe.akka"        %% "akka-http-testkit"       % akkaHttpVersion % Test,
-    "com.typesafe.akka"        %% "akka-http-spray-json"    % akkaHttpVersion
-  ))

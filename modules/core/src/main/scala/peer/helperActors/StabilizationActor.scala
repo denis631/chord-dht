@@ -4,7 +4,7 @@ import akka.pattern.ask
 import akka.actor.{Actor, Props}
 import akka.util.Timeout
 import peer.PeerActor.{FindPredecessor, PredecessorFound, SuccessorFound}
-import peer.PeerEntry
+import peer.{DistributedHashTablePeer, PeerEntry}
 import peer.helperActors.StabilizationActor.StabilizationRun
 
 import scala.concurrent.ExecutionContext
@@ -28,7 +28,7 @@ class StabilizationActor(val parentPeerEntry: PeerEntry, val stabilizationTimeou
         .mapTo[PredecessorFound]
         .map { case PredecessorFound(possibleSuccessor) =>
           val isNewSuccessor = if (peer.id <= parentPeerEntry.id) {
-            val ringSize = 16 //FIXME: fix this later
+            val ringSize = DistributedHashTablePeer.ringSize
             (parentPeerEntry.id < possibleSuccessor.id && possibleSuccessor.id <= ringSize - 1) || (-1 < possibleSuccessor.id && possibleSuccessor.id < peer.id)
           } else {
             parentPeerEntry.id < possibleSuccessor.id && possibleSuccessor.id < peer.id
