@@ -1,12 +1,17 @@
 package peer
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.http.scaladsl.Http
+import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
+import akka.http.scaladsl.model._
+import akka.http.scaladsl.model.headers.RawHeader
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import peer.PeerActor._
 import peer.helperActors.HeartbeatActor._
 import peer.helperActors.StabilizationActor.StabilizationRun
 import peer.helperActors.{HeartbeatActor, StabilizationActor}
+import spray.json.{DefaultJsonProtocol, _}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -15,18 +20,32 @@ import scala.language.postfixOps
 case class PeerEntry(id: Long, ref: ActorRef) {
   override def toString: String = s"Peer: id: $id"
 }
+case class PeerStatus(id: Long, predecessor: Option[Long], successors: List[Long])
 
-trait DistributedHashTablePeer { this: Actor with ActorLogging =>
-  val id: Long
+// collect your json format instances into a support trait:
+trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
+  implicit val peerStatusFormat: RootJsonFormat[PeerStatus] = jsonFormat3(PeerStatus)
+}
+
+object DistributedHashTablePeer {
   val replicationFactor = 1 //TODO: implement replication
-  val ringSize = 16
-  val requiredSuccessorListLength: Int = math.sqrt(ringSize).toInt
+  val ringSize = 64
+  val requiredSuccessorListLength = 4
+}
+
+trait DistributedHashTablePeer { this: Actor with ActorLogging with JsonSupport =>
+  implicit val ec: ExecutionContext = context.dispatcher
+  val id: Long
+
+  implicit class RichLong(otherId: Long) {
+    def relativeToPeer: Long = if (otherId < id) otherId + DistributedHashTablePeer.ringSize else otherId
+  }
 
   def peerEntry: PeerEntry = PeerEntry(id, self)
 
   def idInPeerRange(successorId: Long, otherId: Long): Boolean = {
     val isInPeerRange = if (successorId <= id) {
-      (id < otherId && otherId <= ringSize - 1) || (-1 < otherId && otherId <= successorId)
+      (id < otherId && otherId <= DistributedHashTablePeer.ringSize - 1) || (-1 < otherId && otherId <= successorId)
     } else {
       id < otherId && otherId <= successorId
     }
@@ -34,6 +53,16 @@ trait DistributedHashTablePeer { this: Actor with ActorLogging =>
     log.debug(s"($id...$successorId) $otherId is in successors range: $isInPeerRange")
 
     isInPeerRange
+  }
+
+  def post(currentStatus: PeerStatus): Unit = {
+    Http(context.system).singleRequest(
+      HttpRequest(
+        HttpMethods.POST,
+        "http://localhost:4567/node",
+        entity = HttpEntity(ContentTypes.`application/json`, currentStatus.toJson.toString())
+      ).withHeaders(RawHeader("X-Access-Token", "access token"))
+    ).foreach(println)
   }
 }
 
@@ -75,13 +104,12 @@ object PeerActor {
 class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, val stabilizationDuration: FiniteDuration, isSeed: Boolean, selfStabilize: Boolean)
   extends Actor
     with DistributedHashTablePeer
-    with ActorLogging {
+    with ActorLogging
+    with JsonSupport {
 
   // valid id check
   require(id >= 0)
-  require(id < ringSize)
-
-  implicit val ec: ExecutionContext = context.dispatcher
+  require(id < DistributedHashTablePeer.ringSize)
 
   if (selfStabilize) {
     for (msg <- List(Heartbeatify, Stabilize, FindMissingSuccessors))
@@ -118,7 +146,7 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
       log.debug(s"sending current predecessor $predecessor to $sender of node $id")
       predecessor.foreach(sender ! PredecessorFound(_))
 
-    case PredecessorFound(peer) =>
+    case PredecessorFound(peer) if predecessor.isEmpty || peer.id.relativeToPeer > predecessor.get.id.relativeToPeer =>
       log.debug(s"predecessor found for node ${peer.id} <- $id")
       context.become(serving(dataStore, successorEntries, Option(peer)))
 
@@ -132,11 +160,11 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
 
     case SuccessorFound(nearestSuccessorEntry) if !successorEntries.contains(nearestSuccessorEntry) && nearestSuccessorEntry.id != peerEntry.id =>
       val newSuccessorList =
-        nearestSuccessorEntry :: successorEntries.filter(_.id != peerEntry.id )
-        .sortBy { entry =>
-          if (entry.id < peerEntry.id) entry.id + ringSize else entry.id
-        }
-        .take(requiredSuccessorListLength)
+        (nearestSuccessorEntry :: successorEntries.filter(_.id != peerEntry.id))
+        .sortBy(_.id.relativeToPeer)
+        .take(DistributedHashTablePeer.requiredSuccessorListLength)
+
+      post(PeerStatus(id, predecessor.map(_.id), newSuccessorList.map(_.id)))
 
       log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
@@ -149,7 +177,7 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
 
       case Stabilize => stabilizationActor ! StabilizationRun(successorEntries.head)
 
-      case FindMissingSuccessors if successorEntries.length < requiredSuccessorListLength =>
+      case FindMissingSuccessors if successorEntries.length < DistributedHashTablePeer.requiredSuccessorListLength =>
         successorEntries.last.ref ! FindSuccessor(successorEntries.last.id + 1)
 
       case _ =>
