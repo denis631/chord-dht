@@ -129,7 +129,7 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
     }
   }
 
-  override def receive: Receive = if(isSeed) serving(Map.empty, List(peerEntry), Option.empty) else joining(Map.empty)
+  override def receive: Receive = if(isSeed) serving(Map.empty, new FingerTable(id, self), List(peerEntry), Option.empty) else joining(Map.empty)
 
   def joining(dataStore: Map[DataStoreKey, Any]): Receive = {
     case JoinVia(seed: ActorRef) =>
@@ -138,17 +138,17 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
 
     case SuccessorFound(successorEntry) =>
       log.debug(s"successor found for node $id -> ${successorEntry.id}")
-      context.become(serving(dataStore, List(successorEntry), Option.empty))
+      context.become(serving(dataStore, new FingerTable(id, successorEntry.ref), List(successorEntry), Option.empty))
   }
 
-  def serving(dataStore: Map[DataStoreKey, Any], successorEntries: List[PeerEntry], predecessor: Option[PeerEntry]): Receive = {
+  def serving(dataStore: Map[DataStoreKey, Any], fingerTable: FingerTable, successorEntries: List[PeerEntry], predecessor: Option[PeerEntry]): Receive = {
     case FindPredecessor =>
       log.debug(s"sending current predecessor $predecessor to $sender of node $id")
       predecessor.foreach(sender ! PredecessorFound(_))
 
     case PredecessorFound(peer) if predecessor.isEmpty || peer.id.relativeToPeer > predecessor.get.id.relativeToPeer =>
       log.debug(s"predecessor found for node ${peer.id} <- $id")
-      context.become(serving(dataStore, successorEntries, Option(peer)))
+      context.become(serving(dataStore, fingerTable, successorEntries, Option(peer)))
 
     case msg @ FindSuccessor(otherPeerId) =>
       log.debug(s"looking for successor for $otherPeerId at node $id")
@@ -156,6 +156,7 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
         sender ! SuccessorFound(successorEntries.head)
       } else {
         successorEntries.head.ref forward msg //TODO: use fingertable later
+//        fingerTable(otherPeerId) forward msg
       }
 
     case SuccessorFound(nearestSuccessorEntry) if !successorEntries.contains(nearestSuccessorEntry) && nearestSuccessorEntry.id != peerEntry.id =>
@@ -168,47 +169,41 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
 
       log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
-      context.become(serving(dataStore, newSuccessorList, predecessor))
+      context.become(serving(dataStore, fingerTable, newSuccessorList, predecessor))
 
-    case op: HelperOperation => op match {
-      case Heartbeatify =>
-        predecessor.map(_.ref).foreach(heartbeatActor ! HeartbeatRunForPredecessor(_))
-        successorEntries.foreach(heartbeatActor ! HeartbeatRunForSuccessor(_))
+    // HelperOperation
+    case Heartbeatify =>
+      predecessor.map(_.ref).foreach(heartbeatActor ! HeartbeatRunForPredecessor(_))
+      successorEntries.foreach(heartbeatActor ! HeartbeatRunForSuccessor(_))
 
-      case Stabilize => stabilizationActor ! StabilizationRun(successorEntries.head)
+    case Stabilize => stabilizationActor ! StabilizationRun(successorEntries.head)
 
-      case FindMissingSuccessors if successorEntries.length < DistributedHashTablePeer.requiredSuccessorListLength =>
-        successorEntries.last.ref ! FindSuccessor(successorEntries.last.id + 1)
+    case FindMissingSuccessors if successorEntries.length < DistributedHashTablePeer.requiredSuccessorListLength =>
+      successorEntries.last.ref ! FindSuccessor(successorEntries.last.id + 1)
 
-      case _ =>
-    }
+    // HeartbeatMessage
+    case HeartbeatCheck => sender ! HeartbeatAck
+    case HeartbeatAckForSuccessor(successorEntry) => log.debug(s"heartbeat succeeded for successor $successorEntry in successor entries list $successorEntries. checked by node $id")
+    case HeartbeatAckForPredecessor => log.debug(s"heartbeat succeeded for predecessor $predecessor. checked by node $id")
+    case HeartbeatNackForSuccessor(successorEntry) =>
+      log.debug(s"heartbeat failed for successor at index ${successorEntry.id} of node $id")
+      val listWithoutItemAtIdx = successorEntries.filter(_.id != successorEntry.id)
+      val newSuccessorEntries = if (listWithoutItemAtIdx.isEmpty) List(peerEntry) else listWithoutItemAtIdx
+      context.become(serving(dataStore, fingerTable, newSuccessorEntries, predecessor))
+    case HeartbeatNackForPredecessor =>
+      log.debug(s"heartbeat failed for predecessor of node $id")
+      context.become(serving(dataStore, fingerTable, successorEntries, Option.empty))
 
-    case op: HeartbeatMessage => op match {
-      case HeartbeatCheck => sender ! HeartbeatAck
-      case HeartbeatAckForSuccessor(successorEntry) => log.debug(s"heartbeat succeeded for successor $successorEntry in successor entries list $successorEntries. checked by node $id")
-      case HeartbeatAckForPredecessor => log.debug(s"heartbeat succeeded for predecessor $predecessor. checked by node $id")
-      case HeartbeatNackForSuccessor(successorEntry) =>
-        log.debug(s"heartbeat failed for successor at index ${successorEntry.id} of node $id")
-        val listWithoutItemAtIdx = successorEntries.filter(_.id != successorEntry.id)
-        val newSuccessorEntries = if (listWithoutItemAtIdx.isEmpty) List(peerEntry) else listWithoutItemAtIdx
-        context.become(serving(dataStore, newSuccessorEntries, predecessor))
-      case HeartbeatNackForPredecessor =>
-        log.debug(s"heartbeat failed for predecessor of node $id")
-        context.become(serving(dataStore, successorEntries, Option.empty))
-      case _ =>
-    }
-
-    case op: InternalOp => op match {
-      case _Get(key) => sender ! GetResponse(key, dataStore.get(key))
-      case _Insert(key, value) =>
-        log.debug(s"new dataStore ${dataStore + (key -> value)} at node $id")
-        context.become(serving(dataStore + (key -> value), successorEntries, predecessor))
-        sender ! MutationAck(key)
-      case _Remove(key) =>
-        log.debug(s"new dataStore ${dataStore - key} at node $id")
-        context.become(serving(dataStore - key, successorEntries, predecessor))
-        sender ! MutationAck(key)
-    }
+    // InternalOp
+    case _Get(key) => sender ! GetResponse(key, dataStore.get(key))
+    case _Insert(key, value) =>
+      log.debug(s"new dataStore ${dataStore + (key -> value)} at node $id")
+      context.become(serving(dataStore + (key -> value), fingerTable, successorEntries, predecessor))
+      sender ! MutationAck(key)
+    case _Remove(key) =>
+      log.debug(s"new dataStore ${dataStore - key} at node $id")
+      context.become(serving(dataStore - key, fingerTable, successorEntries, predecessor))
+      sender ! MutationAck(key)
 
     case op: Operation =>
       val _ = (self ? FindSuccessor(op.key.id))(operationTimeout)
