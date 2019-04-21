@@ -153,8 +153,8 @@
             if (error) {
                 alert("Failed to retrieve existing node: " + error)
             } else {
-                for (var i = 0; i < json.length; i++) {
-                    createNodeOrUpdateSuccessor(svg, json[i]);
+                for (var i = 0; i < json.items.length; i++) {
+                    createNodeOrUpdateSuccessor(svg, json.items[i]);
                 }
             }
 
