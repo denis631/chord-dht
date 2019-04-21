@@ -58,7 +58,7 @@ class WebService extends Directives with JsonSupport {
     pathPrefix("node") {
       post {
         entity(as[PeerStatus]) { status =>
-          (s"received data: $status")
+          println(s"received data: $status")
           dhtMonitor.updatePeerStatus(status)
           complete("ok")
         }
