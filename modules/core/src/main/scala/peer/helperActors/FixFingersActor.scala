@@ -27,7 +27,6 @@ class FixFingersActor(val msgTimeout: Timeout) extends Actor {
       val _ = (context.parent ? FindSuccessor(id))(msgTimeout)
         .mapTo[SuccessorFound]
         .map { case SuccessorFound(entry) =>
-          println(s"successor for $id is ${entry.id}")
           SuccessorForFingerFound(entry, idx)
         }
         .recover { case _ => SuccessorForFingerNotFound(idx) }

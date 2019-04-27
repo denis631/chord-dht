@@ -12,7 +12,7 @@ class PeerTestSuite
     with FindSuccessorTests
     with StabilizationTests
     with DHTClientTests
-    with FingerTableTests
+    // with FingerTableTests
     with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")

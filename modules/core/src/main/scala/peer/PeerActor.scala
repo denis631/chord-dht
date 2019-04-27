@@ -170,8 +170,6 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
         .distinct
         .take(DistributedHashTablePeer.requiredSuccessorListLength)
 
-      post(PeerStatus(id, predecessor.map(_.id), newSuccessorList.map(_.id)))
-
       log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
       context.become(serving(dataStore, fingerTable.updateHeadEntry(newSuccessorList.head), newSuccessorList, predecessor, successorIdxToFind))
@@ -198,6 +196,7 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
 
     // FixFingersMessage
     case SuccessorForFingerFound(successorEntry: PeerEntry, idx: Int) =>
+      post(PeerStatus(id, predecessor.map(_.id), List(fingerTable.updateEntryAtIdx(successorEntry, idx).table.last.id)))
       context.become(serving(dataStore, fingerTable.updateEntryAtIdx(successorEntry, idx), successorEntries, predecessor, successorIdxToFind))
     case SuccessorForFingerNotFound(idx: Int) =>
       val replacementActorRef = if (idx == FingerTable.tableSize-1) successorEntries.head else fingerTable(idx+1)
