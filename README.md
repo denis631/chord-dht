@@ -29,3 +29,6 @@ The status can be monitored at `http://127.0.0.1:4567/websocket.html`
 
 ## Demo preview
 ![Alt Text](media/stabilization.gif)
+
+## Frontend and Inspiration ##
+html/js frontend is shamelessly taken from [this repo](https://github.com/tristanpenman/chordial)
