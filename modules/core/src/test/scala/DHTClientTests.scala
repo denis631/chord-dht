@@ -2,35 +2,17 @@ package peer
 
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
-import peer.DHTClient.OperationToDHT
-
-import scala.concurrent.duration._
-import peer.PeerActor.{Get, GetResponse, Insert, MutationAck}
+import peer.PeerActor.{Get, GetResponse}
 import peer.helperActors.RetriableActor
 import peer.helperActors.RetriableActor.TryingFailure
+
+import scala.concurrent.duration._
+import scala.language.postfixOps
 
 trait DHTClientTests
   extends fixture.FunSpec
     with Matchers
     with fixture.ConfigMapFixture { this: PeerTestSuite =>
-
-  describe("dht client queries the dht") {
-    it("if data is there, then dht client receives the message") { _ =>
-      val peersIdsList = List(1,5,9,13)
-
-      withRealPeers(peersIdsList) { peers =>
-        val client = system.actorOf(DHTClient.props())
-        val observer = TestProbe()
-        val key = MockKey("ab", 7)
-
-        observer.send(client, OperationToDHT(Insert(key, 1), peers))
-        observer.expectMsg(MutationAck(key))
-
-        observer.send(client, OperationToDHT(Get(key), peers))
-        observer.expectMsg(GetResponse(key, Some(1)))
-      }
-    }
-  }
 
   describe("retriable actor retries certain amount of times") {
     it("if it fails all of them it sends a failure message to the client") { _ =>

@@ -13,23 +13,35 @@ class WebService extends Directives with JsonSupport {
   implicit val system = ActorSystem()
   implicit val materializer = ActorMaterializer()
 
+  implicit class RichPeerStatus(peerStatus: PeerStatus) {
+    def toPeerStatusMessage: String = {
+      s"""{
+         |"type": "SuccessorUpdated",
+         |"nodeId": ${peerStatus.id},
+         |"successorId": ${peerStatus.successors.head}
+         |}""".stripMargin
+    }
+  }
+
   class DHTMonitor {
-    val bufferSize = 100
+    private var state: Map[Long, PeerStatus] = Map.empty
+    val bufferSize = 1000
 
     val (inputQueue, queueSource) = Source
       .queue[PeerStatus](bufferSize, OverflowStrategy.dropHead)
       .via(eventsToMessagesFlow)
       .preMaterialize()
 
-    def eventsToMessagesFlow: Flow[PeerStatus, TextMessage.Strict, NotUsed] = Flow[PeerStatus].map {
-      case PeerStatus(nodeId, predecessor, successors) => TextMessage(
-        s"""{
-           |"type": "SuccessorUpdated",
-           |"nodeId": $nodeId,
-           |"successorId": ${successors.head}
-           |}""".stripMargin
-      )
+    def eventsToMessagesFlow: Flow[PeerStatus, TextMessage.Strict, NotUsed] = Flow[PeerStatus].map { peerStatus =>
+      TextMessage(peerStatus.toPeerStatusMessage)
     }
+
+    def updatePeerStatus(peerStatus: PeerStatus): Unit = {
+      inputQueue offer peerStatus
+      state += peerStatus.id -> peerStatus
+    }
+
+    def currentDHTState: List[PeerStatus] = state.values.toList
   }
 
   val dhtMonitor = new DHTMonitor()
@@ -38,7 +50,8 @@ class WebService extends Directives with JsonSupport {
     pathPrefix("nodes") {
       pathEndOrSingleSlash {
         get {
-          complete("""{"items": []}""") //TODO: show for all clients same dht state
+          val items = dhtMonitor.currentDHTState.map(_.toPeerStatusMessage).mkString(",")
+          complete(s"""{"items": [$items]}""")
         }
       }
     } ~
@@ -46,7 +59,7 @@ class WebService extends Directives with JsonSupport {
       post {
         entity(as[PeerStatus]) { status =>
           println(s"received data: $status")
-          dhtMonitor.inputQueue offer status
+          dhtMonitor.updatePeerStatus(status)
           complete("ok")
         }
       }

@@ -4,6 +4,7 @@ import akka.actor.{Actor, ActorRef, PoisonPill, Props}
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 
+import scala.language.postfixOps
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
