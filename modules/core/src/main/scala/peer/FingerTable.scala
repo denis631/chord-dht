@@ -13,7 +13,7 @@ class FingerTable(peerId: Long, val table: List[PeerEntry]) {
   def idPlusOffsetList: List[Long] = List // 32, 16, 8, 4, 2, 1 offset + peerId
     .fill(FingerTable.tableSize-1)(1)
     .foldLeft[List[Long]](List(1)) { (acc, _) => (acc.head * 2) :: acc }
-    .map { fingerTableEntry => (fingerTableEntry + peerId) % DistributedHashTablePeer.ringSize }
+    .map(_ + peerId)
 
   def updateHeadEntry(newPeerEntry: PeerEntry): FingerTable = updateEntryAtIdx(newPeerEntry, FingerTable.tableSize-1)
 
