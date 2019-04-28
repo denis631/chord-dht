@@ -1,13 +1,8 @@
 package peer
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
-import akka.http.scaladsl.Http
-import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
-import akka.http.scaladsl.model._
-import akka.http.scaladsl.model.headers.RawHeader
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
-import spray.json.{DefaultJsonProtocol, _}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -16,12 +11,6 @@ import scala.language.postfixOps
 case class PeerEntry(id: Long, ref: ActorRef) {
   override def toString: String = s"Peer: id: $id"
 }
-case class PeerStatus(id: Long, predecessor: Option[Long], successors: List[Long])
-
-// collect your json format instances into a support trait:
-trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
-  implicit val peerStatusFormat: RootJsonFormat[PeerStatus] = jsonFormat3(PeerStatus)
-}
 
 object DistributedHashTablePeer {
   val replicationFactor = 1 //TODO: implement replication
@@ -29,7 +18,7 @@ object DistributedHashTablePeer {
   val requiredSuccessorListLength = 4
 }
 
-trait DistributedHashTablePeer { this: Actor with ActorLogging with JsonSupport =>
+trait DistributedHashTablePeer { this: Actor with ActorLogging =>
   implicit val ec: ExecutionContext = context.dispatcher
   val id: Long
 
@@ -50,16 +39,6 @@ trait DistributedHashTablePeer { this: Actor with ActorLogging with JsonSupport 
 
     isInPeerRange
   }
-
-  def post(currentStatus: PeerStatus): Unit = {
-    Http(context.system).singleRequest(
-      HttpRequest(
-        HttpMethods.POST,
-        "http://localhost:4567/node",
-        entity = HttpEntity(ContentTypes.`application/json`, currentStatus.toJson.toString())
-      ).withHeaders(RawHeader("X-Access-Token", "access token"))
-    ).foreach { response => log.debug(response.toString()) }
-  }
 }
 
 object PeerActor {
@@ -78,7 +57,7 @@ object PeerActor {
   sealed trait Operation {
     def key: DataStoreKey
   }
-  sealed trait InternalOp extends Operation
+  sealed trait InternalOp
 
   case class Insert(key: DataStoreKey, value: Any) extends Operation
   case class _Insert(key: DataStoreKey, value: Any) extends InternalOp
@@ -94,21 +73,20 @@ object PeerActor {
   case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
   case class MutationAck(key: DataStoreKey) extends OperationResponse
 
-  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), stabilizationDuration: FiniteDuration = 5 seconds, isSeed: Boolean = false, selfStabilize: Boolean = false): Props =
-    Props(new PeerActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, selfStabilize))
+  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), stabilizationDuration: FiniteDuration = 5 seconds, isSeed: Boolean = false, selfStabilize: Boolean = false, statusUploader: Option[StatusUploader] = Option.empty): Props =
+    Props(new PeerActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, selfStabilize, statusUploader))
 }
 
-class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, val stabilizationDuration: FiniteDuration, isSeed: Boolean, selfStabilize: Boolean)
+class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, val stabilizationDuration: FiniteDuration, isSeed: Boolean, selfStabilize: Boolean, statusUploader: Option[StatusUploader])
   extends Actor
     with DistributedHashTablePeer
-    with ActorLogging
-    with JsonSupport {
+    with ActorLogging {
 
   import peer.PeerActor._
-  import peer.helperActors.{FixFingersActor, HeartbeatActor, StabilizationActor}
+  import peer.helperActors.FixFingersActor._
   import peer.helperActors.HeartbeatActor._
   import peer.helperActors.StabilizationActor._
-  import peer.helperActors.FixFingersActor._
+  import peer.helperActors.{FixFingersActor, HeartbeatActor, StabilizationActor}
 
   // valid id check
   require(id >= 0)
@@ -129,7 +107,6 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
       case Get(key) => _Get(key)
       case Insert(key, value) => _Insert(key, value)
       case Remove(key) => _Remove(key)
-      case _ => ???
     }
   }
 
@@ -152,7 +129,6 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
 
     case PredecessorFound(peer) if predecessor.isEmpty || peer.id.relativeToPeer > predecessor.get.id.relativeToPeer =>
       log.debug(s"predecessor found for node ${peer.id} <- $id")
-      post(PeerStatus(id, Option(peer.id), successorEntries.map(_.id)))
       context.become(serving(dataStore, fingerTable, successorEntries, Option(peer), successorIdxToFind))
 
     case msg @ FindSuccessor(otherPeerId) =>
@@ -196,7 +172,9 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
 
     // FixFingersMessage
     case SuccessorForFingerFound(successorEntry: PeerEntry, idx: Int) =>
-      post(PeerStatus(id, predecessor.map(_.id), List(fingerTable.updateEntryAtIdx(successorEntry, idx).table.last.id)))
+      // currently posting only the successor node (last in the finger table, not the complete finger table)
+      statusUploader.foreach(_.uploadStatus(PeerStatus(id, predecessor.map(_.id), List(fingerTable.updateEntryAtIdx(successorEntry, idx).table.last.id))))
+
       context.become(serving(dataStore, fingerTable.updateEntryAtIdx(successorEntry, idx), successorEntries, predecessor, successorIdxToFind))
     case SuccessorForFingerNotFound(idx: Int) =>
       val replacementActorRef = if (idx == FingerTable.tableSize-1) successorEntries.head else fingerTable(idx+1)

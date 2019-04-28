@@ -6,6 +6,7 @@ import org.scalatest.BeforeAndAfterAll
 import peer.PeerActor._
 
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 case class MockKey(key: String, override val id: Int) extends DataStoreKey
 
@@ -30,7 +31,7 @@ class PeerTestSuite
     val peerEntry = PeerEntry(peerId, peer)
     val entry = PeerEntry(successorId, successor.ref)
     peer ! SuccessorFound(entry)
-    test(peerEntry, peer, entry, successor)
+    val _ = test(peerEntry, peer, entry, successor)
   }
 
   def withPeerAndPredecessor(peerId: Long = 11, predecessorId: Long = 3)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {
@@ -39,6 +40,6 @@ class PeerTestSuite
     val peerEntry = PeerEntry(peerId, peer)
     val entry = PeerEntry(predecessorId, predecessor.ref)
     peer ! PredecessorFound(entry)
-    test(peerEntry, peer, entry, predecessor)
+    val _ = test(peerEntry, peer, entry, predecessor)
   }
 }

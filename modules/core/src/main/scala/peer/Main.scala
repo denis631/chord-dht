@@ -11,10 +11,10 @@ object Main extends App {
   implicit val system = ActorSystem.create()
   implicit val ec = ExecutionContext.global
 
-  val seed = system.actorOf(PeerActor.props(60, stabilizationDuration = 300 millis, isSeed = true, selfStabilize = true))
+  val seed = system.actorOf(PeerActor.props(60, stabilizationDuration = 300 millis, isSeed = true, selfStabilize = true, statusUploader = Option(new StatusUploader)))
   val newPeerIds = List(1,8,14,21,32,38,42,48,51)
 
   newPeerIds
-    .map { id => system.actorOf(PeerActor.props(id, stabilizationDuration = 300 millis, selfStabilize = true)) }
+    .map { id => system.actorOf(PeerActor.props(id, stabilizationDuration = 300 millis, selfStabilize = true, statusUploader = Option(new StatusUploader))) }
     .foreach { actor => actor ! JoinVia(seed) }
 }

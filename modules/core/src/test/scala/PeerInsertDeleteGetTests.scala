@@ -1,15 +1,8 @@
 package peer
 
-import akka.actor.{ActorRef, PoisonPill}
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
-import akka.pattern.ask
-import akka.util.Timeout
 import peer.PeerActor._
-
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration._
-import scala.language.postfixOps
 
 trait PeerInsertDeleteGetTests
   extends fixture.FunSpec

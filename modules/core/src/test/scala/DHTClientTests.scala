@@ -7,6 +7,7 @@ import peer.helperActors.RetriableActor
 import peer.helperActors.RetriableActor.TryingFailure
 
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 trait DHTClientTests
   extends fixture.FunSpec
