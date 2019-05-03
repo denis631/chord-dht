@@ -6,11 +6,12 @@ import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server.{Directives, Route}
 import akka.stream.scaladsl.{Flow, Sink, Source}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
+import com.typesafe.config.ConfigFactory
 import peer.{JsonSupport, PeerStatus}
 
 class WebService extends Directives with JsonSupport {
 
-  implicit val system = ActorSystem()
+  implicit val system = ActorSystem("DHTMonitor", ConfigFactory.load())
   implicit val materializer = ActorMaterializer()
 
   implicit class RichPeerStatus(peerStatus: PeerStatus) {

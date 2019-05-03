@@ -30,7 +30,9 @@ lazy val core = project.in(file("modules/core"))
     "com.typesafe.akka"        %% "akka-stream-testkit"      % akkaVersion % Test,
     "com.typesafe.akka"        %% "akka-stream-typed"        % akkaVersion,
 
-    // to be used slightly in followers example
+    // for remote actors support
+    "com.typesafe.akka"        %% "akka-remote"              % akkaVersion,
+
     "com.typesafe.akka"        %% "akka-actor-typed"         % akkaVersion,
     "com.typesafe.akka"        %% "akka-actor-testkit-typed" % akkaVersion % Test,
 
