@@ -7,16 +7,37 @@ import akka.http.scaladsl.model.headers.RawHeader
 import akka.http.scaladsl.model.{ContentTypes, HttpEntity, HttpMethods, HttpRequest}
 import spray.json._
 
-case class PeerStatus(id: Long, predecessor: Option[Long], successors: List[Long])
+sealed trait PeerStatus {
+  def toPeerStatusMessage: String
+}
+
+case class PeerDied(id: Long) extends PeerStatus {
+  def toPeerStatusMessage: String = {
+    s"""{
+       |"type": "NodeDeleted",
+       |"nodeId": $id
+       |}""".stripMargin
+  }
+}
+case class PeerConnections(id: Long, predecessor: Option[Long], successors: List[Long]) extends PeerStatus {
+  def toPeerStatusMessage: String = {
+    s"""{
+       |"type": "SuccessorUpdated",
+       |"nodeId": $id,
+       |"successorId": ${successors.head}
+       |}""".stripMargin
+  }
+}
 
 // collect your json format instances into a support trait:
 trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
-  implicit val peerStatusFormat: RootJsonFormat[PeerStatus] = jsonFormat3(PeerStatus)
+  implicit val peerStatusFormat: RootJsonFormat[PeerConnections] = jsonFormat3(PeerConnections)
+  implicit val peerDiedFormat: RootJsonFormat[PeerDied] = jsonFormat1(PeerDied)
 }
 
 
 class StatusUploader(implicit val system: ActorSystem) extends JsonSupport {
-  def uploadStatus(currentStatus: PeerStatus): Unit = {
+  def uploadStatus(currentStatus: PeerConnections): Unit = {
     val _ = Http().singleRequest(
       HttpRequest(
         HttpMethods.POST,

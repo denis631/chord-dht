@@ -1,6 +1,6 @@
 package peer
 
-import akka.actor.ActorSystem
+import akka.actor.{ActorSystem, PoisonPill}
 import peer.PeerActor._
 
 import scala.concurrent.ExecutionContext
@@ -14,7 +14,16 @@ object Main extends App {
   val seed = system.actorOf(PeerActor.props(60, stabilizationDuration = 300 millis, isSeed = true, selfStabilize = true, statusUploader = Option(new StatusUploader)))
   val newPeerIds = List(1,8,14,21,32,38,42,48,51)
 
-  newPeerIds
+  val peers =newPeerIds
     .map { id => system.actorOf(PeerActor.props(id, stabilizationDuration = 300 millis, selfStabilize = true, statusUploader = Option(new StatusUploader))) }
-    .foreach { actor => actor ! JoinVia(seed) }
+
+  peers.foreach { actor => actor ! JoinVia(seed) }
+
+  system.scheduler.scheduleOnce(10 seconds) {
+    peers.head ! PoisonPill
+
+    system.scheduler.scheduleOnce(5 seconds) {
+      peers.last ! PoisonPill
+    }
+  }
 }

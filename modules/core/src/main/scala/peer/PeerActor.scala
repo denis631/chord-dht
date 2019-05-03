@@ -173,7 +173,7 @@ class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTi
     // FixFingersMessage
     case SuccessorForFingerFound(successorEntry: PeerEntry, idx: Int) =>
       // currently posting only the successor node (last in the finger table, not the complete finger table)
-      statusUploader.foreach(_.uploadStatus(PeerStatus(id, predecessor.map(_.id), List(fingerTable.updateEntryAtIdx(successorEntry, idx).table.last.id))))
+      statusUploader.foreach(_.uploadStatus(PeerConnections(id, predecessor.map(_.id), List(fingerTable.updateEntryAtIdx(successorEntry, idx).table.last.id))))
 
       context.become(serving(dataStore, fingerTable.updateEntryAtIdx(successorEntry, idx), successorEntries, predecessor, successorIdxToFind))
     case SuccessorForFingerNotFound(idx: Int) =>
