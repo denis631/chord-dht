@@ -1,8 +1,9 @@
 package peer
 
-import akka.actor.{ActorRef, ActorSystem}
+import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.testkit.{TestKit, TestProbe}
 import org.scalatest.BeforeAndAfterAll
+import peer.application.{DataStoreKey, StorageActor}
 import peer.routing.{PeerEntry, RoutingActor}
 import peer.routing.RoutingActor.{PredecessorFound, SuccessorFound}
 
@@ -16,18 +17,19 @@ class PeerTestSuite
     with PeerHearbeatTests
     with FindSuccessorTests
     with StabilizationTests
-    with DHTClientTests
     with FingerTableTests
     with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")
+  implicit val storageActorCreation = (peerId: Long) => StorageActor.props(peerId, 1 second, 1 second)
+  implicit val routingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second)
 
   override def afterAll(): Unit = {
     TestKit.shutdownActorSystem(system)
   }
 
-  def withPeerAndSuccessor(peerId: Long = 11, successorId: Long = 3)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {
-    val peer = system.actorOf(RoutingActor.props(peerId, 1 second, 1 second))
+  def withPeerAndSuccessor(actorFactory: Long => Props)(peerId: Long = 11, successorId: Long = 3)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {
+    val peer = system.actorOf(actorFactory(peerId))
     val successor = TestProbe()
     val peerEntry = PeerEntry(peerId, peer)
     val entry = PeerEntry(successorId, successor.ref)
@@ -35,8 +37,8 @@ class PeerTestSuite
     val _ = test(peerEntry, peer, entry, successor)
   }
 
-  def withPeerAndPredecessor(peerId: Long = 11, predecessorId: Long = 3)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {
-    val peer = system.actorOf(RoutingActor.props(peerId, 1 second, 1 second, isSeed = true))
+  def withPeerAndPredecessor(actorFactory: Long => Props)(peerId: Long = 11, predecessorId: Long = 3)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {
+    val peer = system.actorOf(actorFactory(peerId))
     val predecessor = TestProbe()
     val peerEntry = PeerEntry(peerId, peer)
     val entry = PeerEntry(predecessorId, predecessor.ref)

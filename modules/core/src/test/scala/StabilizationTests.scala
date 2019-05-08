@@ -18,7 +18,7 @@ trait StabilizationTests
   describe("stabilization actor asks for predecessor of the successor node") {
     describe("if the successors predecessor is not sender") {
       it("notify the new successor about self as its predecessor") { _ =>
-        withPeerAndSuccessor() { (peerEntry, peer, successorEntry, successor) =>
+        withPeerAndSuccessor(routingActorCreation)() { (peerEntry, peer, successorEntry, successor) =>
           val stabilizerActor = system.actorOf(StabilizationActor.props(peerEntry, 1 second))
 
           val nodeInBetween = TestProbe()
@@ -40,7 +40,7 @@ trait StabilizationTests
 
     describe("if the successor predecessor is nil") {
       it("notify the new successor about self as its predecessor") { _ =>
-        withPeerAndSuccessor() { (senderPeerEntry, _, successorEntry, successor) =>
+        withPeerAndSuccessor(routingActorCreation)() { (senderPeerEntry, _, successorEntry, successor) =>
           val stabilizerActor = system.actorOf(StabilizationActor.props(senderPeerEntry, 1 second))
 
           stabilizerActor ! StabilizationRun(successorEntry)

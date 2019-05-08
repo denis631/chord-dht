@@ -2,6 +2,7 @@ package peer
 
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
+import peer.application.StorageActor.{Get, GetResponse, _Get}
 import peer.routing.RoutingActor._
 import peer.routing.helperActors.HeartbeatActor.{HeartbeatAck, HeartbeatCheck}
 
@@ -16,7 +17,7 @@ trait PeerHearbeatTests
   describe("hash table peer, when joined and stabilized wants to send hearbeat to predecessor") {
     describe("if predecessor doesn't reply") {
       it("the predecessor of the node should be nil") { _ =>
-        withPeerAndPredecessor() { (_, peer, _, predecessor) =>
+        withPeerAndPredecessor(routingActorCreation)() { (_, peer, _, predecessor) =>
           peer ! Heartbeatify
           predecessor.expectMsg(HeartbeatCheck)
           predecessor.expectNoMessage(1.5 seconds)
@@ -30,7 +31,7 @@ trait PeerHearbeatTests
 
     describe("if predecessor replies") {
       it("it should not be nil") { _ =>
-        withPeerAndPredecessor() { (_, peer, predecessorEntry, predecessor) =>
+        withPeerAndPredecessor(routingActorCreation)() { (_, peer, predecessorEntry, predecessor) =>
           peer ! Heartbeatify
           predecessor.expectMsg(HeartbeatCheck)
           predecessor.reply(HeartbeatAck)
@@ -46,7 +47,7 @@ trait PeerHearbeatTests
   describe("hash table peer, when joined and when sends heartbeat to successor") {
     describe("if successor doesn't reply") {
       it("the successor is cleared (not operational)") { _ =>
-        withPeerAndSuccessor() { (_, peer, _, successor) =>
+        withPeerAndSuccessor(storageActorCreation)() { (_, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 13)
 
@@ -63,7 +64,7 @@ trait PeerHearbeatTests
 
     describe("if successor replies") {
       it("the successor is not cleared (still operational)") { _ =>
-        withPeerAndSuccessor() { (_, peer, _, successor) =>
+        withPeerAndSuccessor(storageActorCreation)() { (_, peer, _, successor) =>
           peer ! Heartbeatify
 
           successor.expectMsg(HeartbeatCheck)

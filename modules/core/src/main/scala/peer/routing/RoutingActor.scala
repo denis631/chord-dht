@@ -3,7 +3,7 @@ package peer.routing
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
-import peer.DataStoreKey
+import peer.application.StorageActor.{Operation, OperationNack}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -55,30 +55,11 @@ object RoutingActor {
   case object FindMissingSuccessors extends HelperOperation
   case object FixFingers extends HelperOperation
 
-  sealed trait Operation {
-    def key: DataStoreKey
-  }
-  sealed trait InternalOp
-
-  case class Insert(key: DataStoreKey, value: Any) extends Operation
-  case class _Insert(key: DataStoreKey, value: Any) extends InternalOp
-
-  case class Remove(key: DataStoreKey) extends Operation
-  case class _Remove(key: DataStoreKey) extends InternalOp
-
-  case class Get(key: DataStoreKey) extends Operation
-  case class _Get(key: DataStoreKey) extends InternalOp
-
-  sealed trait OperationResponse
-  case class OperationNack(key: DataStoreKey) extends OperationResponse
-  case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
-  case class MutationAck(key: DataStoreKey) extends OperationResponse
-
-  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), stabilizationDuration: FiniteDuration = 5 seconds, isSeed: Boolean = false, selfStabilize: Boolean = false, statusUploader: Option[StatusUploader] = Option.empty): Props =
-    Props(new RoutingActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, selfStabilize, statusUploader))
+  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), stabilizationDuration: FiniteDuration = 5 seconds, isSeed: Boolean = false, statusUploader: Option[StatusUploader] = Option.empty): Props =
+    Props(new RoutingActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, statusUploader))
 }
 
-class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, val stabilizationDuration: FiniteDuration, isSeed: Boolean, selfStabilize: Boolean, statusUploader: Option[StatusUploader])
+class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, val stabilizationDuration: FiniteDuration, isSeed: Boolean, statusUploader: Option[StatusUploader])
   extends Actor
     with DistributedHashTablePeer
     with ActorLogging {
@@ -93,44 +74,31 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
   require(id >= 0)
   require(id < DistributedHashTablePeer.ringSize)
 
-  if (selfStabilize) {
-    for (msg <- List(Heartbeatify, Stabilize, FindMissingSuccessors, FixFingers))
-      context.system.scheduler.schedule(0 seconds, stabilizationDuration, self, msg)
-  }
-
   // extra actors for maintenance
   val heartbeatActor: ActorRef = context.actorOf(HeartbeatActor.props(stabilizationTimeout))
   val stabilizationActor: ActorRef = context.actorOf(StabilizationActor.props(peerEntry, stabilizationTimeout))
   val fixFingersActor: ActorRef = context.actorOf(FixFingersActor.props(stabilizationTimeout))
 
-  private def operationToInternalMapping(op: Operation): InternalOp = {
-    op match {
-      case Get(key) => _Get(key)
-      case Insert(key, value) => _Insert(key, value)
-      case Remove(key) => _Remove(key)
-    }
-  }
+  override def receive: Receive = if(isSeed) serving(new FingerTable(id, peerEntry), List(peerEntry), Option.empty, 0) else joining()
 
-  override def receive: Receive = if(isSeed) serving(Map.empty, new FingerTable(id, peerEntry), List(peerEntry), Option.empty, 0) else joining(Map.empty)
-
-  def joining(dataStore: Map[DataStoreKey, Any]): Receive = {
+  def joining(): Receive = {
     case JoinVia(seed: ActorRef) =>
       log.debug(s"node $id wants to join the network via $seed")
       seed ! FindSuccessor(id)
 
     case SuccessorFound(successorEntry) =>
       log.debug(s"successor found for node $id -> ${successorEntry.id}")
-      context.become(serving(dataStore, new FingerTable(id, successorEntry), List(successorEntry), Option.empty, 0))
+      context.become(serving(new FingerTable(id, successorEntry), List(successorEntry), Option.empty, 0))
   }
 
-  def serving(dataStore: Map[DataStoreKey, Any], fingerTable: FingerTable, successorEntries: List[PeerEntry], predecessor: Option[PeerEntry], successorIdxToFind: Long): Receive = {
+  def serving(fingerTable: FingerTable, successorEntries: List[PeerEntry], predecessor: Option[PeerEntry], successorIdxToFind: Long): Receive = {
     case FindPredecessor =>
       log.debug(s"sending current predecessor $predecessor to $sender of node $id")
       predecessor.foreach(sender ! PredecessorFound(_))
 
     case PredecessorFound(peer) if predecessor.isEmpty || peer.id.relativeToPeer > predecessor.get.id.relativeToPeer =>
       log.debug(s"predecessor found for node ${peer.id} <- $id")
-      context.become(serving(dataStore, fingerTable, successorEntries, Option(peer), successorIdxToFind))
+      context.become(serving(fingerTable, successorEntries, Option(peer), successorIdxToFind))
 
     case msg @ FindSuccessor(otherPeerId) =>
       log.debug(s"looking for successor for $otherPeerId at node $id")
@@ -149,7 +117,7 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
 
       log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
-      context.become(serving(dataStore, fingerTable.updateHeadEntry(newSuccessorList.head), newSuccessorList, predecessor, successorIdxToFind))
+      context.become(serving(fingerTable.updateHeadEntry(newSuccessorList.head), newSuccessorList, predecessor, successorIdxToFind))
 
     // HelperOperation
     case Heartbeatify =>
@@ -169,17 +137,17 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
         case _ => successorEntries.last.id + 1
       }
       self ! FindSuccessor(peerIdToLookFor)
-      context.become(serving(dataStore, fingerTable, successorEntries, predecessor, (successorIdxToFind+1) % DistributedHashTablePeer.requiredSuccessorListLength))
+      context.become(serving(fingerTable, successorEntries, predecessor, (successorIdxToFind+1) % DistributedHashTablePeer.requiredSuccessorListLength))
 
     // FixFingersMessage
     case SuccessorForFingerFound(successorEntry: PeerEntry, idx: Int) =>
       // currently posting only the successor node (last in the finger table, not the complete finger table)
       statusUploader.foreach(_.uploadStatus(PeerConnections(id, predecessor.map(_.id), List(fingerTable.updateEntryAtIdx(successorEntry, idx).table.last.id))))
 
-      context.become(serving(dataStore, fingerTable.updateEntryAtIdx(successorEntry, idx), successorEntries, predecessor, successorIdxToFind))
+      context.become(serving(fingerTable.updateEntryAtIdx(successorEntry, idx), successorEntries, predecessor, successorIdxToFind))
     case SuccessorForFingerNotFound(idx: Int) =>
       val replacementActorRef = if (idx == FingerTable.tableSize-1) successorEntries.head else fingerTable(idx+1)
-      context.become(serving(dataStore, fingerTable.updateEntryAtIdx(replacementActorRef, idx), successorEntries, predecessor, successorIdxToFind))
+      context.become(serving(fingerTable.updateEntryAtIdx(replacementActorRef, idx), successorEntries, predecessor, successorIdxToFind))
 
     // HeartbeatMessage
     case HeartbeatCheck => sender ! HeartbeatAck
@@ -189,30 +157,21 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
       log.debug(s"heartbeat failed for successor at index ${successorEntry.id} of node $id")
       val listWithoutItemAtIdx = successorEntries.filter(_.id != successorEntry.id)
       val newSuccessorEntries = if (listWithoutItemAtIdx.isEmpty) List(peerEntry) else listWithoutItemAtIdx
-      context.become(serving(dataStore, fingerTable, newSuccessorEntries, predecessor, successorIdxToFind))
+      context.become(serving(fingerTable, newSuccessorEntries, predecessor, successorIdxToFind))
     case HeartbeatNackForPredecessor =>
       log.debug(s"heartbeat failed for predecessor of node $id")
-      context.become(serving(dataStore, fingerTable, successorEntries, Option.empty, successorIdxToFind))
-
-    // InternalOp
-    case _Get(key) => sender ! GetResponse(key, dataStore.get(key))
-    case _Insert(key, value) =>
-      log.debug(s"new dataStore ${dataStore + (key -> value)} at node $id")
-      context.become(serving(dataStore + (key -> value), fingerTable, successorEntries, predecessor, successorIdxToFind))
-      sender ! MutationAck(key)
-    case _Remove(key) =>
-      log.debug(s"new dataStore ${dataStore - key} at node $id")
-      context.become(serving(dataStore - key, fingerTable, successorEntries, predecessor, successorIdxToFind))
-      sender ! MutationAck(key)
+      context.become(serving(fingerTable, successorEntries, Option.empty, successorIdxToFind))
 
     case op: Operation =>
       val _ = (self ? FindSuccessor(op.key.id))(operationTimeout)
         .mapTo[SuccessorFound]
         .flatMap { case SuccessorFound(entry) =>
-            log.debug(s"successor ${entry.id} found for key ${op.key}")
-            (entry.ref ? operationToInternalMapping(op))(operationTimeout)
+          log.debug(s"successor ${entry.id} found for key ${op.key}")
+          (entry.ref ? op.operationToInternalMapping)(operationTimeout)
         }
         .recover { case _ => OperationNack(op.key) }
         .pipeTo(sender)
+
+    case msg => context.parent forward msg
   }
 }

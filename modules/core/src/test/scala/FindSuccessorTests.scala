@@ -27,7 +27,7 @@ trait FindSuccessorTests
 
       describe("its id is within requested nodes' range") {
         it("node sends findSuccessor request and gets as reply successorEntry") { _ =>
-          withPeerAndSuccessor() { (_, peer, entry, _) =>
+          withPeerAndSuccessor(routingActorCreation)() { (_, peer, entry, _) =>
             val client = TestProbe()
             client.send(peer, FindSuccessor(entry.id - 1))
             client.expectMsg(SuccessorFound(entry))
@@ -37,7 +37,7 @@ trait FindSuccessorTests
 
       describe("its id is not within requested nodes' range") {
         it("node forwards the request to the successor node") { _ =>
-          withPeerAndSuccessor() { (_, peer, entry, successor) =>
+          withPeerAndSuccessor(routingActorCreation)() { (_, peer, entry, successor) =>
             val client = TestProbe()
             val msg = FindSuccessor(entry.id + 1)
             client.send(peer, msg)
@@ -50,7 +50,7 @@ trait FindSuccessorTests
     describe("node has a successor list of next 2 nodes") {
       describe("if new successor id is smaller than the previous one") {
         it("its successor list order is adapted") { _ =>
-          withPeerAndSuccessor() { (peerEntry, peer, successorEntry, _) =>
+          withPeerAndSuccessor(routingActorCreation)() { (peerEntry, peer, successorEntry, _) =>
             val newSuccessor = TestProbe()
             val newSuccessorPeerEntry = PeerEntry(13, newSuccessor.ref)
 
@@ -66,7 +66,7 @@ trait FindSuccessorTests
 
       describe("if next successor dies") {
         it("successor list should update and the new successor should be set") { _ =>
-          withPeerAndSuccessor() { (peerEntry, peer, successorEntry, _) =>
+          withPeerAndSuccessor(routingActorCreation)() { (peerEntry, peer, successorEntry, _) =>
             val secondSuccessor = TestProbe()
             val secondSuccessorPeerEntry = PeerEntry(6, secondSuccessor.ref)
 
