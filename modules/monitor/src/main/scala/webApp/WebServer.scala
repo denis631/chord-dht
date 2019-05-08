@@ -2,7 +2,6 @@ package webApp
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.server.Directives._
 import akka.stream.ActorMaterializer
 import akka.util.Timeout
 
@@ -16,11 +15,9 @@ object WebServer extends App {
   implicit val executionContext = system.dispatcher
 
   val webService = new WebService()
-  val route = webService.route ~ getFromResourceDirectory("webapp")
-
   val port = 4567
   val interface = "localhost"
-  val bindingFuture = Http().bindAndHandle(route, interface, port)
+  val bindingFuture = Http().bindAndHandle(webService.route, interface, port)
 
   println(s"Server online at http://$interface:$port/\nPress RETURN to stop...")
   StdIn.readLine() // let it run until user presses return

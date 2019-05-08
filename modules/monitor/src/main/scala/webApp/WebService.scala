@@ -84,5 +84,6 @@ class WebService extends Directives with JsonSupport {
       get {
         handleWebSocketMessages(Flow.fromSinkAndSource(Sink.ignore, dhtMonitor.queueSource))
       }
-    }
+    } ~
+    getFromResourceDirectory("webapp")
 }
