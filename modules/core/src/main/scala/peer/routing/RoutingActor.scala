@@ -1,8 +1,9 @@
-package peer
+package peer.routing
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
+import peer.DataStoreKey
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -41,7 +42,7 @@ trait DistributedHashTablePeer { this: Actor with ActorLogging =>
   }
 }
 
-object PeerActor {
+object RoutingActor {
   case class JoinVia(seed: ActorRef)
   case object FindPredecessor
   case class PredecessorFound(predecessor: PeerEntry)
@@ -74,19 +75,19 @@ object PeerActor {
   case class MutationAck(key: DataStoreKey) extends OperationResponse
 
   def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), stabilizationDuration: FiniteDuration = 5 seconds, isSeed: Boolean = false, selfStabilize: Boolean = false, statusUploader: Option[StatusUploader] = Option.empty): Props =
-    Props(new PeerActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, selfStabilize, statusUploader))
+    Props(new RoutingActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, selfStabilize, statusUploader))
 }
 
-class PeerActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, val stabilizationDuration: FiniteDuration, isSeed: Boolean, selfStabilize: Boolean, statusUploader: Option[StatusUploader])
+class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, val stabilizationDuration: FiniteDuration, isSeed: Boolean, selfStabilize: Boolean, statusUploader: Option[StatusUploader])
   extends Actor
     with DistributedHashTablePeer
     with ActorLogging {
 
-  import peer.PeerActor._
-  import peer.helperActors.FixFingersActor._
-  import peer.helperActors.HeartbeatActor._
-  import peer.helperActors.StabilizationActor._
-  import peer.helperActors.{FixFingersActor, HeartbeatActor, StabilizationActor}
+  import peer.routing.RoutingActor._
+  import peer.routing.helperActors.FixFingersActor._
+  import peer.routing.helperActors.HeartbeatActor._
+  import peer.routing.helperActors.StabilizationActor._
+  import peer.routing.helperActors.{FixFingersActor, HeartbeatActor, StabilizationActor}
 
   // valid id check
   require(id >= 0)

@@ -2,6 +2,7 @@
 
  import akka.testkit.TestProbe
  import org.scalatest.{Matchers, fixture}
+ import peer.routing.{DistributedHashTablePeer, FingerTable, PeerEntry}
 
 
  trait FingerTableTests

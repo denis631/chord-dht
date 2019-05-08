@@ -1,4 +1,4 @@
-package peer
+package peer.routing
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http

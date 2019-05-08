@@ -4,13 +4,15 @@ import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import peer.DHTClient.OperationToDHT
-import peer.helperActors.RetriableActor
+import peer.routing.RoutingActor
+import peer.routing.helperActors.RetriableActor
+
 import scala.language.postfixOps
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Promise}
 
 object DHTClient {
-  case class OperationToDHT(operation: PeerActor.Operation, actors: List[ActorRef])
+  case class OperationToDHT(operation: RoutingActor.Operation, actors: List[ActorRef])
 
   def props(): Props = Props(new DHTClient)
 }

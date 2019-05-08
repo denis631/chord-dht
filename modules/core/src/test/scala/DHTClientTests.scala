@@ -2,9 +2,9 @@ package peer
 
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
-import peer.PeerActor.{Get, GetResponse}
-import peer.helperActors.RetriableActor
-import peer.helperActors.RetriableActor.TryingFailure
+import peer.routing.RoutingActor.{Get, GetResponse}
+import peer.routing.helperActors.RetriableActor
+import peer.routing.helperActors.RetriableActor.TryingFailure
 
 import scala.concurrent.duration._
 import scala.language.postfixOps

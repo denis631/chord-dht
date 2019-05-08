@@ -3,9 +3,11 @@ package peer
 import scala.language.postfixOps
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
+
 import scala.concurrent.duration._
-import peer.PeerActor._
-import peer.helperActors.HeartbeatActor.HeartbeatNackForSuccessor
+import peer.routing.{PeerEntry, RoutingActor}
+import peer.routing.RoutingActor.{FindSuccessor, JoinVia, SuccessorFound}
+import peer.routing.helperActors.HeartbeatActor.HeartbeatNackForSuccessor
 
 trait FindSuccessorTests
   extends fixture.FunSpec
@@ -15,7 +17,7 @@ trait FindSuccessorTests
     describe("new node wants to join") {
       describe("it sends JoinVia message to the seed") {
         it("node should send the find successor message to the seed in order to find its successor in the overlay") { _ =>
-          val peer = system.actorOf(PeerActor.props(11, 1 second, 1 second))
+          val peer = system.actorOf(RoutingActor.props(11, 1 second, 1 second))
           val successor = TestProbe()
 
           peer ! JoinVia(successor.ref)

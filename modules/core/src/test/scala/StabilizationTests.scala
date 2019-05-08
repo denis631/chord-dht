@@ -2,9 +2,10 @@ package peer
 
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
-import peer.PeerActor._
-import peer.helperActors.StabilizationActor
-import peer.helperActors.StabilizationActor.StabilizationRun
+import peer.routing.PeerEntry
+import peer.routing.RoutingActor.{FindPredecessor, FindSuccessor, PredecessorFound, SuccessorFound}
+import peer.routing.helperActors.StabilizationActor
+import peer.routing.helperActors.StabilizationActor.StabilizationRun
 
 import scala.concurrent.duration._
 import scala.language.postfixOps

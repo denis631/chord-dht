@@ -47,6 +47,6 @@ lazy val core = project.in(file("modules/core"))
     "com.typesafe.akka"        %% "akka-http-spray-json"    % akkaHttpVersion
   ))
 
-lazy val webApp = project.in(file("modules/demo"))
+lazy val monitor = project.in(file("modules/monitor"))
   .dependsOn(core)
   .settings(commonSettings: _*)

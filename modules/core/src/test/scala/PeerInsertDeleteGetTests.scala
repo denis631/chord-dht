@@ -2,7 +2,7 @@ package peer
 
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
-import peer.PeerActor._
+import peer.routing.RoutingActor._
 
 trait PeerInsertDeleteGetTests
   extends fixture.FunSpec

@@ -1,4 +1,4 @@
-package peer
+package peer.routing
 
 object FingerTable {
   private def log2: Double => Double = (x: Double) => Math.log10(x)/Math.log10(2.0)

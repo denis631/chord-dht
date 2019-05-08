@@ -6,7 +6,7 @@ import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server.{Directives, Route}
 import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
-import peer.{JsonSupport, PeerConnections, PeerDied, PeerStatus}
+import peer.routing.{JsonSupport, PeerConnections, PeerDied, PeerStatus}
 
 import scala.concurrent.duration._
 
