@@ -10,6 +10,8 @@ import peer.routing.{JsonSupport, PeerConnections, PeerDied, PeerStatus}
 
 import scala.concurrent.duration._
 
+import language.postfixOps
+
 class WebService extends Directives with JsonSupport {
 
   implicit val system = ActorSystem()
@@ -42,7 +44,7 @@ class WebService extends Directives with JsonSupport {
           .reduce((_, curr) => curr)
           .to(Sink.foreach { _ =>
             state -= id
-            inputQueue offer PeerDied(id)
+            val _ = inputQueue offer PeerDied(id)
           })
           .run()
 

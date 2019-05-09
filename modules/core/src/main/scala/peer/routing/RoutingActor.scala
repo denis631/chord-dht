@@ -1,9 +1,7 @@
 package peer.routing
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
-import akka.pattern.{ask, pipe}
 import akka.util.Timeout
-import peer.application.StorageActor.{Operation, OperationNack}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -19,7 +17,7 @@ object DistributedHashTablePeer {
   val requiredSuccessorListLength = 4
 }
 
-trait DistributedHashTablePeer { this: Actor with ActorLogging =>
+trait DistributedHashTablePeer { this: Actor =>
   implicit val ec: ExecutionContext = context.dispatcher
   val id: Long
 
@@ -30,24 +28,21 @@ trait DistributedHashTablePeer { this: Actor with ActorLogging =>
   def peerEntry: PeerEntry = PeerEntry(id, self)
 
   def idInPeerRange(successorId: Long, otherId: Long): Boolean = {
-    val isInPeerRange = if (successorId <= id) {
+    return if (successorId <= id) {
       (id < otherId && otherId <= DistributedHashTablePeer.ringSize - 1) || (-1 < otherId && otherId <= successorId)
     } else {
       id < otherId && otherId <= successorId
     }
-
-    log.debug(s"($id...$successorId) $otherId is in successors range: $isInPeerRange")
-
-    isInPeerRange
   }
 }
 
 object RoutingActor {
-  case class JoinVia(seed: ActorRef)
-  case object FindPredecessor
-  case class PredecessorFound(predecessor: PeerEntry)
-  case class FindSuccessor(id: Long)
-  case class SuccessorFound(nearestSuccessor: PeerEntry)
+  sealed trait RoutingMessage
+  case class JoinVia(seed: ActorRef) extends RoutingMessage
+  case object FindPredecessor extends RoutingMessage
+  case class PredecessorFound(predecessor: PeerEntry) extends RoutingMessage
+  case class FindSuccessor(id: Long) extends RoutingMessage
+  case class SuccessorFound(nearestSuccessor: PeerEntry) extends RoutingMessage
 
   sealed trait HelperOperation
   case object Heartbeatify extends HelperOperation
@@ -162,16 +157,7 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
       log.debug(s"heartbeat failed for predecessor of node $id")
       context.become(serving(fingerTable, successorEntries, Option.empty, successorIdxToFind))
 
-    case op: Operation =>
-      val _ = (self ? FindSuccessor(op.key.id))(operationTimeout)
-        .mapTo[SuccessorFound]
-        .flatMap { case SuccessorFound(entry) =>
-          log.debug(s"successor ${entry.id} found for key ${op.key}")
-          (entry.ref ? op.operationToInternalMapping)(operationTimeout)
-        }
-        .recover { case _ => OperationNack(op.key) }
-        .pipeTo(sender)
-
+    // forward all unknown messages to the application layer
     case msg => context.parent forward msg
   }
 }

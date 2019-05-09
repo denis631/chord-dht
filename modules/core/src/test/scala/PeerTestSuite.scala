@@ -21,8 +21,9 @@ class PeerTestSuite
     with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")
-  implicit val storageActorCreation = (peerId: Long) => StorageActor.props(peerId, 1 second, 1 second)
-  implicit val routingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second)
+  val storageActorCreation = (peerId: Long) => StorageActor.props(peerId, 1 second, 1 second)
+  val routingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second)
+  val seedRoutingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second, isSeed = true)
 
   override def afterAll(): Unit = {
     TestKit.shutdownActorSystem(system)
@@ -32,9 +33,9 @@ class PeerTestSuite
     val peer = system.actorOf(actorFactory(peerId))
     val successor = TestProbe()
     val peerEntry = PeerEntry(peerId, peer)
-    val entry = PeerEntry(successorId, successor.ref)
-    peer ! SuccessorFound(entry)
-    val _ = test(peerEntry, peer, entry, successor)
+    val successorEntry = PeerEntry(successorId, successor.ref)
+    peer ! SuccessorFound(successorEntry)
+    val _ = test(peerEntry, peer, successorEntry, successor)
   }
 
   def withPeerAndPredecessor(actorFactory: Long => Props)(peerId: Long = 11, predecessorId: Long = 3)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {

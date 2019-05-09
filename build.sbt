@@ -18,6 +18,8 @@ lazy val commonSettings = Seq(
   )
 )
 
+scalaVersion in ThisBuild := "2.12.8"
+
 parallelExecution in Test := false
 
 val akkaVersion = "2.5.21"

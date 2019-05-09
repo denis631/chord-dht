@@ -1,6 +1,7 @@
 package peer.application
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import peer.application.StorageActor._
 import peer.routing.RoutingActor._
@@ -8,6 +9,8 @@ import peer.routing.{RoutingActor, StatusUploader}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
+
+import language.postfixOps
 
 object StorageActor {
   sealed trait Operation {
@@ -55,12 +58,24 @@ class StorageActor(id: Long,
   implicit val ec: ExecutionContext = context.dispatcher
 
   val routingActor: ActorRef = context.actorOf(RoutingActor.props(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, statusUploader))
-  for (msg <- List(Heartbeatify, Stabilize, FindMissingSuccessors, FixFingers))
-    context.system.scheduler.schedule(0 seconds, stabilizationDuration, routingActor, msg)
+  val stabilizationMessages = List(Heartbeatify, Stabilize, FindMissingSuccessors, FixFingers)
+  stabilizationMessages.foreach(context.system.scheduler.schedule(0 seconds, stabilizationDuration, routingActor, _))
 
   override def receive: Receive = serving(Map.empty)
 
   def serving(dataStore: Map[DataStoreKey, Any]): Receive = {
+    case op: RoutingMessage => routingActor forward op
+
+    case op: Operation =>
+      val _ = (routingActor ? FindSuccessor(op.key.id))(operationTimeout)
+        .mapTo[SuccessorFound]
+        .flatMap { case SuccessorFound(entry) =>
+          log.debug(s"successor ${entry.id} found for key ${op.key}")
+          (entry.ref ? op.operationToInternalMapping)(operationTimeout)
+        }
+        .recover { case _ => OperationNack(op.key) }
+        .pipeTo(sender)
+
     // InternalOp
     case _Get(key) => sender ! GetResponse(key, dataStore.get(key))
     case _Insert(key, value) =>
@@ -71,7 +86,5 @@ class StorageActor(id: Long,
       log.debug(s"new dataStore ${dataStore - key} at node $id")
       context.become(serving(dataStore - key))
       sender ! MutationAck(key)
-
-    case msg => routingActor forward msg
   }
 }
