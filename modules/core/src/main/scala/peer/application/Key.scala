@@ -1,4 +1,4 @@
-package peer
+package peer.application
 
 trait DataStoreKey {
   val key: String

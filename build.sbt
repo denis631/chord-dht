@@ -18,6 +18,8 @@ lazy val commonSettings = Seq(
   )
 )
 
+scalaVersion in ThisBuild := "2.12.8"
+
 parallelExecution in Test := false
 
 val akkaVersion = "2.5.21"
@@ -47,6 +49,6 @@ lazy val core = project.in(file("modules/core"))
     "com.typesafe.akka"        %% "akka-http-spray-json"    % akkaHttpVersion
   ))
 
-lazy val webApp = project.in(file("modules/demo"))
+lazy val monitor = project.in(file("modules/monitor"))
   .dependsOn(core)
   .settings(commonSettings: _*)

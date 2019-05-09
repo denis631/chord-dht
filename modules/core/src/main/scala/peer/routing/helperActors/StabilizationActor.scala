@@ -1,11 +1,11 @@
-package peer.helperActors
+package peer.routing.helperActors
 
 import akka.pattern.ask
 import akka.actor.{Actor, Props}
 import akka.util.Timeout
-import peer.PeerActor.{FindPredecessor, PredecessorFound, SuccessorFound}
-import peer.{DistributedHashTablePeer, PeerEntry}
-import peer.helperActors.StabilizationActor.StabilizationRun
+import peer.routing.{DistributedHashTablePeer, PeerEntry}
+import peer.routing.RoutingActor.{FindPredecessor, PredecessorFound, SuccessorFound}
+import peer.routing.helperActors.StabilizationActor.StabilizationRun
 
 import scala.concurrent.ExecutionContext
 

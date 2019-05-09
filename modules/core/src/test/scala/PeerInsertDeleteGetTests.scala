@@ -2,7 +2,8 @@ package peer
 
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
-import peer.PeerActor._
+import peer.application.StorageActor._
+import peer.routing.RoutingActor._
 
 trait PeerInsertDeleteGetTests
   extends fixture.FunSpec
@@ -12,7 +13,7 @@ trait PeerInsertDeleteGetTests
   describe("hash table peer when joined") {
     describe("received key, which hashed id is not within its range") {
       it("should forward it to the successor") { _ =>
-        withPeerAndSuccessor() { (_, peer, _, successor) =>
+        withPeerAndSuccessor(storageActorCreation)() { (_, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 13)
           val msg = Get(key)
@@ -26,7 +27,7 @@ trait PeerInsertDeleteGetTests
 
     describe("received key, which hashed id is within its range") {
       it("should return the value for this key if stored") { _ =>
-        withPeerAndSuccessor() { (peerEntry, peer, _, successor) =>
+        withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 5)
 
@@ -43,7 +44,7 @@ trait PeerInsertDeleteGetTests
       }
 
       it("should return None for the key if not stored") { _ =>
-        withPeerAndSuccessor() { (peerEntry, peer, _, successor) =>
+        withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 5)
 
@@ -55,7 +56,7 @@ trait PeerInsertDeleteGetTests
       }
 
       it("should be able to remove stored key") { _ =>
-        withPeerAndSuccessor() { (peerEntry, peer, _, successor) =>
+        withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 5)
 

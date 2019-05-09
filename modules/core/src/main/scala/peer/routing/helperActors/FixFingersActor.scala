@@ -1,10 +1,10 @@
-package peer.helperActors
+package peer.routing.helperActors
 
 import akka.actor.{Actor, Props}
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
-import peer.PeerActor.{FindSuccessor, SuccessorFound}
-import peer.PeerEntry
+import peer.routing.PeerEntry
+import peer.routing.RoutingActor.{FindSuccessor, SuccessorFound}
 
 import scala.concurrent.ExecutionContext
 
