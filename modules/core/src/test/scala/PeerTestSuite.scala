@@ -21,7 +21,7 @@ class PeerTestSuite
     with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")
-  val storageActorCreation = (peerId: Long) => StorageActor.props(peerId, 1 second, 1 second)
+  val storageActorCreation = (peerId: Long) => StorageActor.props(peerId, 1 second, 1 second, isStabilizing = false)
   val routingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second)
   val seedRoutingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second, isSeed = true)
 

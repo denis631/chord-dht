@@ -45,8 +45,9 @@ object StorageActor {
             stabilizationTimeout: Timeout = Timeout(3 seconds),
             stabilizationDuration: FiniteDuration = 5 seconds,
             isSeed: Boolean = false,
+            isStabilizing: Boolean = true,
             statusUploader: Option[StatusUploader] = Option.empty): Props =
-    Props(new StorageActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, statusUploader))
+    Props(new StorageActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, isStabilizing, statusUploader))
 }
 
 class StorageActor(id: Long,
@@ -54,12 +55,13 @@ class StorageActor(id: Long,
                    stabilizationTimeout: Timeout,
                    stabilizationDuration: FiniteDuration,
                    isSeed: Boolean,
+                   isStabilizing: Boolean,
                    statusUploader: Option[StatusUploader]) extends Actor with ActorLogging {
   implicit val ec: ExecutionContext = context.dispatcher
 
   val routingActor: ActorRef = context.actorOf(RoutingActor.props(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, statusUploader))
   val stabilizationMessages = List(Heartbeatify, Stabilize, FindMissingSuccessors, FixFingers)
-  stabilizationMessages.foreach(context.system.scheduler.schedule(0 seconds, stabilizationDuration, routingActor, _))
+  if (isStabilizing) stabilizationMessages.foreach(context.system.scheduler.schedule(0 seconds, stabilizationDuration, routingActor, _))
 
   override def receive: Receive = serving(Map.empty)
 
