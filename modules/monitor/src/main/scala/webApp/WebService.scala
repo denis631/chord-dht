@@ -2,23 +2,38 @@ package webApp
 
 import akka.NotUsed
 import akka.actor.ActorSystem
+import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server.{Directives, Route}
 import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
-import peer.routing.{JsonSupport, PeerConnections, PeerDied, PeerStatus}
+import proto.peerstatus.MonitorServiceGrpc
+import spray.json.{DefaultJsonProtocol, RootJsonFormat, _}
 
 import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
+import scala.language.postfixOps
 
-import language.postfixOps
+sealed trait PeerStatus {
+  val `type`: String
+  val nodeId: Long
+}
+case class PeerDied(nodeId: Long, `type`: String = "NodeDeleted") extends PeerStatus
+case class PeerUpdate(nodeId: Long, successorId: Long, `type`: String = "SuccessorUpdated") extends PeerStatus
 
-class WebService extends Directives with JsonSupport {
+// collect your json format instances into a support trait:
+trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
+  implicit val peerConnectionsFormat: RootJsonFormat[PeerUpdate] = jsonFormat3(PeerUpdate)
+  implicit val peerDiedFormat: RootJsonFormat[PeerDied] = jsonFormat2(PeerDied)
+}
 
-  implicit val system = ActorSystem()
-  implicit val materializer = ActorMaterializer()
+class WebService extends Directives with JsonSupport with MonitorServiceGrpc.MonitorService {
+  implicit val system: ActorSystem = ActorSystem()
+  implicit val materializer: ActorMaterializer = ActorMaterializer()
+  implicit val ec: ExecutionContextExecutor = ExecutionContext.global
 
   class DHTMonitor {
-    private var state: Map[Long, PeerConnections] = Map.empty
+    private var state: Map[Long, PeerUpdate] = Map.empty
     private var stateStream: Map[Long, SourceQueueWithComplete[Unit]] = Map.empty
 
     val bufferSize = 1000
@@ -29,7 +44,12 @@ class WebService extends Directives with JsonSupport {
       .preMaterialize()
 
     def eventsToMessagesFlow: Flow[PeerStatus, TextMessage.Strict, NotUsed] =
-      Flow[PeerStatus].map(_.toPeerStatusMessage).map(TextMessage(_))
+      Flow[PeerStatus]
+        .map {
+          case status: PeerDied => status.toJson.toString
+          case status: PeerUpdate => status.toJson.toString
+        }
+        .map(TextMessage(_))
 
     def createStreamIfEmpty(id: Long): SourceQueueWithComplete[Unit] = {
       if (stateStream.contains(id)) {
@@ -53,32 +73,31 @@ class WebService extends Directives with JsonSupport {
       }
     }
 
-    def updatePeerStatus(peerStatus: PeerConnections): Unit = {
+    def updatePeerStatus(peerStatus: PeerUpdate): Unit = {
       inputQueue offer peerStatus
-      createStreamIfEmpty(peerStatus.id) offer Unit // heart-beat like mechanism to delay the kill messages
+      createStreamIfEmpty(peerStatus.nodeId) offer Unit // heart-beat like mechanism to delay the kill messages
 
-      state += peerStatus.id -> peerStatus
+      state += peerStatus.nodeId -> peerStatus
+      val _ = Future.successful(proto.peerstatus.Empty())
     }
 
-    def currentDHTState: List[PeerConnections] = state.values.toList
+    def currentDHTState: List[PeerUpdate] = state.values.toList
   }
 
   val dhtMonitor = new DHTMonitor()
+
+  override def currentPeerConnections(request: proto.peerstatus.PeerConnections): Future[proto.peerstatus.Empty] = {
+    val peerUpdate = PeerUpdate(request.nodeId, request.successors.head)
+    dhtMonitor.updatePeerStatus(peerUpdate)
+    Future.unit.map { _ => proto.peerstatus.Empty() }
+  }
 
   val route: Route =
     pathPrefix("nodes") {
       pathEndOrSingleSlash {
         get {
-          val items = dhtMonitor.currentDHTState.map(_.toPeerStatusMessage).mkString(",")
+          val items = dhtMonitor.currentDHTState.map(_.toJson.toString).mkString(",")
           complete(s"""{"items": [$items]}""")
-        }
-      }
-    } ~
-    pathPrefix("node") {
-      post {
-        entity(as[PeerConnections]) { status =>
-          dhtMonitor.updatePeerStatus(status)
-          complete("ok")
         }
       }
     } ~

@@ -28,7 +28,7 @@ trait DistributedHashTablePeer { this: Actor =>
   def peerEntry: PeerEntry = PeerEntry(id, self)
 
   def idInPeerRange(successorId: Long, otherId: Long): Boolean = {
-    return if (successorId <= id) {
+    if (successorId <= id) {
       (id < otherId && otherId <= DistributedHashTablePeer.ringSize - 1) || (-1 < otherId && otherId <= successorId)
     } else {
       id < otherId && otherId <= successorId
@@ -137,7 +137,7 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
     // FixFingersMessage
     case SuccessorForFingerFound(successorEntry: PeerEntry, idx: Int) =>
       // currently posting only the successor node (last in the finger table, not the complete finger table)
-      statusUploader.foreach(_.uploadStatus(PeerConnections(id, predecessor.map(_.id), List(fingerTable.updateEntryAtIdx(successorEntry, idx).table.last.id))))
+      statusUploader.foreach(_.uploadStatus(id, predecessor.map(_.id), List(fingerTable.updateEntryAtIdx(successorEntry, idx).table.last.id)))
 
       context.become(serving(fingerTable.updateEntryAtIdx(successorEntry, idx), successorEntries, predecessor, successorIdxToFind))
     case SuccessorForFingerNotFound(idx: Int) =>

@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package proto;
+
+service MonitorService {
+    rpc CurrentPeerConnections(PeerConnections) returns (Empty) {};
+}
+
+message PeerConnections {
+    int64 nodeId = 1;
+    int64 predecessor = 2;
+    repeated int64 successors = 3;
+}
+
+message Empty {}
