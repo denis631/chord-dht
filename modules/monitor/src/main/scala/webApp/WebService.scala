@@ -6,19 +6,18 @@ import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server.{Directives, Route}
 import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
-import peer.routing.{JsonSupport, PeerConnections, PeerDied, PeerStatus}
+import messages.{MessagesJSONFormatting, PeerDied, PeerStatus, PeerUpdate}
+import spray.json._
 
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
-import language.postfixOps
-
-class WebService extends Directives with JsonSupport {
-
+class WebService extends Directives with MessagesJSONFormatting {
   implicit val system = ActorSystem()
   implicit val materializer = ActorMaterializer()
 
   class DHTMonitor {
-    private var state: Map[Long, PeerConnections] = Map.empty
+    private var state: Map[Long, PeerUpdate] = Map.empty
     private var stateStream: Map[Long, SourceQueueWithComplete[Unit]] = Map.empty
 
     val bufferSize = 1000
@@ -29,7 +28,12 @@ class WebService extends Directives with JsonSupport {
       .preMaterialize()
 
     def eventsToMessagesFlow: Flow[PeerStatus, TextMessage.Strict, NotUsed] =
-      Flow[PeerStatus].map(_.toPeerStatusMessage).map(TextMessage(_))
+      Flow[PeerStatus]
+        .map {
+          case status: PeerUpdate => status.toJson.toString
+          case status: PeerDied => status.toJson.toString
+        }
+        .map(TextMessage(_))
 
     def createStreamIfEmpty(id: Long): SourceQueueWithComplete[Unit] = {
       if (stateStream.contains(id)) {
@@ -53,14 +57,14 @@ class WebService extends Directives with JsonSupport {
       }
     }
 
-    def updatePeerStatus(peerStatus: PeerConnections): Unit = {
+    def updatePeerStatus(peerStatus: PeerUpdate): Unit = {
       inputQueue offer peerStatus
-      createStreamIfEmpty(peerStatus.id) offer Unit // heart-beat like mechanism to delay the kill messages
+      createStreamIfEmpty(peerStatus.nodeId) offer Unit // heart-beat like mechanism to delay the kill messages
 
-      state += peerStatus.id -> peerStatus
+      state += peerStatus.nodeId -> peerStatus
     }
 
-    def currentDHTState: List[PeerConnections] = state.values.toList
+    def currentDHTState: List[PeerUpdate] = state.values.toList
   }
 
   val dhtMonitor = new DHTMonitor()
@@ -69,14 +73,14 @@ class WebService extends Directives with JsonSupport {
     pathPrefix("nodes") {
       pathEndOrSingleSlash {
         get {
-          val items = dhtMonitor.currentDHTState.map(_.toPeerStatusMessage).mkString(",")
+          val items = dhtMonitor.currentDHTState.map(_.toJson).mkString(",")
           complete(s"""{"items": [$items]}""")
         }
       }
     } ~
     pathPrefix("node") {
       post {
-        entity(as[PeerConnections]) { status =>
+        entity(as[PeerUpdate]) { status =>
           dhtMonitor.updatePeerStatus(status)
           complete("ok")
         }
