@@ -35,18 +35,6 @@ val commonDependencies = Seq(
 )
 
 lazy val proto = project.in(file("modules/proto"))
-  .settings(
-    PB.targets in Compile := Seq(
-      scalapb.gen() -> (sourceManaged in Compile).value
-    ),
-
-    libraryDependencies ++= Seq(
-      // gRPC
-      "com.thesamet.scalapb"     %% "scalapb-runtime-grpc"    % scalapb.compiler.Version.scalapbVersion,
-      "com.thesamet.scalapb"     %% "scalapb-runtime"         % scalapb.compiler.Version.scalapbVersion % "protobuf",
-      "io.grpc"                   % "grpc-netty"              % scalapb.compiler.Version.grpcJavaVersion
-    )
-  )
 
 lazy val core = project.in(file("modules/core"))
   .settings(commonSettings: _*)
@@ -69,6 +57,11 @@ lazy val monitor = project.in(file("modules/monitor"))
     "com.typesafe.akka"        %% "akka-http"               % akkaHttpVersion,
     "com.typesafe.akka"        %% "akka-http-testkit"       % akkaHttpVersion % Test,
     "com.typesafe.akka"        %% "akka-http-spray-json"    % akkaHttpVersion,
+    "com.typesafe.akka"        %% "akka-http2-support"      % akkaHttpVersion
     )
   )
   .dependsOn(proto)
+  .enablePlugins(JavaAgent)
+  .settings(
+    javaAgents += "org.mortbay.jetty.alpn" % "jetty-alpn-agent" % "2.0.9" % "runtime;test"
+  )

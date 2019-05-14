@@ -3,7 +3,7 @@ syntax = "proto3";
 package proto;
 
 service MonitorService {
-    rpc CurrentPeerConnections(PeerConnections) returns (Empty) {};
+    rpc CurrentPeerConnections (PeerConnections) returns (Empty) {}
 }
 
 message PeerConnections {

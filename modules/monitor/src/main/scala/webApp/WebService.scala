@@ -7,7 +7,7 @@ import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server.{Directives, Route}
 import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
-import proto.peerstatus.MonitorServiceGrpc
+import proto.{Empty, MonitorService, PeerConnections}
 import spray.json.{DefaultJsonProtocol, RootJsonFormat, _}
 
 import scala.concurrent.duration._
@@ -21,13 +21,12 @@ sealed trait PeerStatus {
 case class PeerDied(nodeId: Long, `type`: String = "NodeDeleted") extends PeerStatus
 case class PeerUpdate(nodeId: Long, successorId: Long, `type`: String = "SuccessorUpdated") extends PeerStatus
 
-// collect your json format instances into a support trait:
 trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
   implicit val peerConnectionsFormat: RootJsonFormat[PeerUpdate] = jsonFormat3(PeerUpdate)
   implicit val peerDiedFormat: RootJsonFormat[PeerDied] = jsonFormat2(PeerDied)
 }
 
-class WebService extends Directives with JsonSupport with MonitorServiceGrpc.MonitorService {
+class WebService extends Directives with JsonSupport with MonitorService {
   implicit val system: ActorSystem = ActorSystem()
   implicit val materializer: ActorMaterializer = ActorMaterializer()
   implicit val ec: ExecutionContextExecutor = ExecutionContext.global
@@ -78,7 +77,6 @@ class WebService extends Directives with JsonSupport with MonitorServiceGrpc.Mon
       createStreamIfEmpty(peerStatus.nodeId) offer Unit // heart-beat like mechanism to delay the kill messages
 
       state += peerStatus.nodeId -> peerStatus
-      val _ = Future.successful(proto.peerstatus.Empty())
     }
 
     def currentDHTState: List[PeerUpdate] = state.values.toList
@@ -86,11 +84,16 @@ class WebService extends Directives with JsonSupport with MonitorServiceGrpc.Mon
 
   val dhtMonitor = new DHTMonitor()
 
-  override def currentPeerConnections(request: proto.peerstatus.PeerConnections): Future[proto.peerstatus.Empty] = {
-    val peerUpdate = PeerUpdate(request.nodeId, request.successors.head)
-    dhtMonitor.updatePeerStatus(peerUpdate)
-    Future.unit.map { _ => proto.peerstatus.Empty() }
+  override def currentPeerConnections(in: proto.PeerConnections): Future[proto.Empty] = {
+    println(in)
+    dhtMonitor.updatePeerStatus(PeerUpdate(in.nodeId, in.successors.head))
+    Future(Empty())
   }
+
+//  override def currentPeerConnections(in: Source[PeerConnections, NotUsed]): Future[Empty] = {
+//    in.runForeach(connection => dhtMonitor.updatePeerStatus(PeerUpdate(connection.nodeId, connection.successors.head)))
+//      .map(_ => Empty())
+//  }
 
   val route: Route =
     pathPrefix("nodes") {
