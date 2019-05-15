@@ -1,11 +1,11 @@
 package webApp
 
 import akka.actor.ActorSystem
-import akka.http.scaladsl.Http
 import akka.stream.ActorMaterializer
 import akka.util.Timeout
 
 import scala.concurrent.duration._
+import scala.util.Properties
 import scala.io.StdIn
 
 object WebServer extends App {
@@ -15,14 +15,11 @@ object WebServer extends App {
   implicit val executionContext = system.dispatcher
 
   val webService = new WebService()
-  val port = 4567
-  val interface = "localhost"
-  val bindingFuture = Http().bindAndHandle(webService.route, interface, port)
+  val port = Properties.envOrElse("PORT", "8080").toInt
+  val interface = "0.0.0.0"
+  webService.startServer(interface, port)
 
   println(s"Server online at http://$interface:$port/\nPress RETURN to stop...")
   StdIn.readLine() // let it run until user presses return
-
-  bindingFuture
-    .flatMap(_.unbind()) // trigger unbinding from the port
-    .onComplete(_ => system.terminate()) // and shutdown when done
+  System.exit(0)
 }
