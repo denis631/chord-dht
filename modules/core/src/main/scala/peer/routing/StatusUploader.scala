@@ -12,7 +12,7 @@ class StatusUploader(implicit val system: ActorSystem) extends messages.Messages
     val _ = Http().singleRequest(
       HttpRequest(
         HttpMethods.POST,
-        "http://localhost:4567/node",
+        "https://dht-monitor.herokuapp.com/node",
         entity = HttpEntity(ContentTypes.`application/json`, PeerUpdate(id, successors.last.id).toJson.toString())
       ).withHeaders(RawHeader("X-Access-Token", "access token")))
   }

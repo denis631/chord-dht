@@ -3,7 +3,7 @@ package webApp
 import akka.NotUsed
 import akka.actor.ActorSystem
 import akka.http.scaladsl.model.ws.TextMessage
-import akka.http.scaladsl.server.{Directives, Route}
+import akka.http.scaladsl.server._
 import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
 import messages.{MessagesJSONFormatting, PeerDied, PeerStatus, PeerUpdate}
@@ -12,7 +12,7 @@ import spray.json._
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
-class WebService extends Directives with MessagesJSONFormatting {
+class WebService extends HttpApp with MessagesJSONFormatting {
   implicit val system = ActorSystem()
   implicit val materializer = ActorMaterializer()
 
@@ -69,7 +69,7 @@ class WebService extends Directives with MessagesJSONFormatting {
 
   val dhtMonitor = new DHTMonitor()
 
-  val route: Route =
+  override protected def routes: Route =
     pathPrefix("nodes") {
       pathEndOrSingleSlash {
         get {
@@ -91,5 +91,6 @@ class WebService extends Directives with MessagesJSONFormatting {
         handleWebSocketMessages(Flow.fromSinkAndSource(Sink.ignore, dhtMonitor.queueSource))
       }
     } ~
-    getFromResourceDirectory("webapp")
+    getFromDirectory("universal/stage/resources/webapp") ~ 
+    getFromDirectory("target/universal/stage/resources/webapp")
 }
