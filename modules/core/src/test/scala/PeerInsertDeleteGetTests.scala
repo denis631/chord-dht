@@ -34,7 +34,7 @@ trait PeerInsertDeleteGetTests
           client.send(peer, Insert(key, -1))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(MutationAck(key))
+          client.expectMsg(OperationAck(key))
 
           client.send(peer, Get(key))
           successor.expectMsg(FindSuccessor(key.id))
@@ -63,12 +63,12 @@ trait PeerInsertDeleteGetTests
           client.send(peer, Insert(key, 1))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(MutationAck(key))
+          client.expectMsg(OperationAck(key))
 
           client.send(peer, Remove(key))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(MutationAck(key))
+          client.expectMsg(OperationAck(key))
 
           client.send(peer, Get(key))
           successor.expectMsg(FindSuccessor(key.id))
