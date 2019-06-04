@@ -116,7 +116,7 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
       context.become(serving(fingerTable.updateHeadEntry(newSuccessorList.head), newSuccessorList, predecessor, successorIdxToFind))
 
-    case GetSuccessorList => sender ! SucccessorList(successorEntries)
+    case GetSuccessorList => sender ! SuccessorList(successorEntries)
 
     // HelperOperation
     case Heartbeatify =>

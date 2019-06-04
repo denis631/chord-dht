@@ -14,14 +14,14 @@ case class MockKey(key: String, override val id: Int) extends DataStoreKey
 
 class PeerTestSuite
   extends PeerInsertDeleteGetTests
-    with PeerHearbeatTests
-    with FindSuccessorTests
-    with StabilizationTests
-    with FingerTableTests
+//    with PeerHearbeatTests
+//    with FindSuccessorTests
+//    with StabilizationTests
+//    with FingerTableTests
     with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")
-  val storageActorCreation = (peerId: Long) => StorageActor.props(peerId, 1 second, 1 second, isStabilizing = false)
+  val storageActorCreation = (peerId: Long) => StorageActor.props(peerId, 1 second, 1 second, isStabilizing = false, r = 1, w = 1)
   val routingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second)
   val seedRoutingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second, isSeed = true)
 

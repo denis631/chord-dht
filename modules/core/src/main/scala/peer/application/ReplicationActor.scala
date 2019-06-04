@@ -7,27 +7,26 @@ import peer.application.ReplicationActor._
 import peer.application.StorageActor._
 
 import scala.concurrent.{ExecutionContext, Future}
-import scala.language.postfixOps
+import scala.util.Success
 
 object ReplicationActor {
-  case class Replicate(key: DataStoreKey, value: Any, peers: List[ActorRef], minNumberOfSuccessfulWrites: Int)
+  case class Replicate(op: MutationOp, peers: List[ActorRef])
 
-  def props(replicationTimeout: Timeout): Props = Props(new ReplicationActor(replicationTimeout))
+  def props(replicationFactor: Int, replicationTimeout: Timeout): Props = Props(new ReplicationActor(replicationFactor, replicationTimeout))
 }
 
-class ReplicationActor(replicationTimeout: Timeout) extends Actor {
+class ReplicationActor(w: Int, replicationTimeout: Timeout) extends Actor {
   implicit val ec: ExecutionContext = context.dispatcher
+  implicit val timeout: Timeout = replicationTimeout
 
   override def receive: Receive = {
-    case Replicate(key, value, peers, w) =>
+    //TODO: tests
+    case Replicate(op, peers) =>
       // Quorum writes. At least w writes should be successful
       val _ = Future
-        .sequence(peers.map(_ ? StorageActor._Persist(key, value)(replicationTimeout)))
-        .map(_.flatMap {
-          case _: Exception => None
-          case other => Some(other)
-        })
-        .map { coll => if (coll.length < w) OperationNack else OperationAck }
+        .sequence(peers.map(_ ? op).map(_.transform(Success(_))))
+        .map(_.collect { case Success(x) => x })
+        .map(coll => if (coll.length < w) OperationNack(op.key) else OperationAck(op.key))
         .pipeTo(sender)
     }
 }
