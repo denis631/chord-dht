@@ -33,8 +33,8 @@ object StorageActor {
 
     def toMutableOp: MutationOp = {
       this match {
-        case _Insert(key, value) => _Persist(PersistedKey(key), value)
-        case _Remove(key) => _Unpersist(PersistedKey(key))
+        case _Insert(key, value) => _Persist(key, PersistedDataStoreValue(value))
+        case _Remove(key) => _Unpersist(key, PersistedDataStoreValue(None))
       }
     }
   }
@@ -42,8 +42,8 @@ object StorageActor {
     val key: DataStoreKey
   }
 
-  case class _Persist(key: PersistedDataStoreKey, value: Any) extends MutationOp
-  case class _Unpersist(key: PersistedDataStoreKey) extends MutationOp
+  case class _Persist(key: DataStoreKey, value: PersistedDataStoreValue) extends MutationOp
+  case class _Unpersist(key: DataStoreKey, placeholder: PersistedDataStoreValue) extends MutationOp
 
   case class Insert(key: DataStoreKey, value: Any) extends Operation
   case class _Insert(key: DataStoreKey, value: Any) extends InternalOp
@@ -93,7 +93,7 @@ class StorageActor(id: Long,
 
   override def receive: Receive = serving(Map.empty)
 
-  def serving(dataStore: Map[DataStoreKey, Option[Any]]): Receive = {
+  def serving(dataStore: Map[DataStoreKey, PersistedDataStoreValue]): Receive = {
     case op: RoutingMessage => routingActor forward op
 
     case op: Operation =>
@@ -108,15 +108,14 @@ class StorageActor(id: Long,
 
     // InternalOp
     case _Persist(key, value) =>
-      log.debug("persisting")
-      context.become(serving(dataStore + (key -> Some(value))))
+      context.become(serving(dataStore + (key -> value)))
       sender ! OperationAck(key)
 
-    case _Unpersist(key) =>
-      context.become(serving(dataStore + (key -> None)))
+    case _Unpersist(key, placeholder) =>
+      context.become(serving(dataStore + (key -> placeholder)))
       sender ! OperationAck(key)
 
-    case _ValueForKey(key) => sender ! dataStore.get(key)
+    case _ValueForKey(key) => sender ! dataStore.getOrElse(key, PersistedDataStoreValue(None, -1))
 
     case _Get(key) =>
       //TODO: implement read-repair?
@@ -124,23 +123,29 @@ class StorageActor(id: Long,
         .mapTo[SuccessorList]
         .flatMap { case SuccessorList(successors) =>
           val peers = self::successors.map(_.ref)
-          if (minNumberOfSuccessfulWrites > peers.length) Future(GetResponse(key, Option.empty))
+          if (minNumberOfSuccessfulWrites > peers.length) Future(GetResponse(key, None))
           else {
             Future
               // read from all peers
-              .sequence(peers.map(peer => (peer ? _ValueForKey(key))(peerConnectionTimeout)).map(_.transform(Success(_))))
+              .sequence(peers.map(peer => (peer ? _ValueForKey(key))(peerConnectionTimeout))
+                             .map(_.transform(Success(_))))
               .map(_
-                .collect { case x: Success[(PersistedDataStoreKey, Option[Any])] => x.value }
-                .groupBy(_._1.creationTimestamp)
-                // pick the most recent one
+                .collect { case x: Success[PersistedDataStoreValue] => x.value }
+                .groupBy(_.creationTimestamp)
                 .maxBy(_._1)
                 ._2
               )
               .flatMap { latestKeyValuePair =>
+                // flatten if value is Option (no Option[Option[_]] types)
+                val responseVal = Some(latestKeyValuePair.head.value).flatMap {
+                  case x: Option[_] => x
+                  case x => Option(x)
+                }
+
                 // r successful reads are required
                 if (latestKeyValuePair.length < r) Future(GetResponse(key, None))
-                else                               Future(GetResponse(key, latestKeyValuePair.head._2))
-              }
+                else                               Future(GetResponse(key, responseVal))
+            }
           }
         }
         .pipeTo(sender)
@@ -150,8 +155,8 @@ class StorageActor(id: Long,
       .mapTo[SuccessorList]
       .flatMap { case SuccessorList(successors) =>
         val peers = self::successors.map(_.ref)
-        log.debug(s"got successor list before persisting: $peers")
-        if (minNumberOfSuccessfulWrites > peers.length) Future(OperationNack(op.key))
+        log.debug(s"successor list before persisting: $peers")
+        if (peers.length < minNumberOfSuccessfulWrites) Future(OperationNack(op.key))
         else                                            replicationActor ? Replicate(op.toMutableOp, peers)
       }
       .pipeTo(sender)
