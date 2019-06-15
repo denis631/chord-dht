@@ -5,6 +5,8 @@ import org.scalatest.{Matchers, fixture}
 import peer.application.StorageActor._
 import peer.routing.RoutingActor._
 
+import scala.concurrent.duration._
+
 trait PeerInsertDeleteGetTests
   extends fixture.FunSpec
     with Matchers
@@ -31,15 +33,16 @@ trait PeerInsertDeleteGetTests
           val client = TestProbe()
           val key = MockKey("key", 5)
 
-          client.send(peer, Insert(key, -1))
+          client.send(peer, Insert(key, Some(-1)))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(MutationAck(key))
+
+          client.expectMsg(3 seconds, OperationAck(key))
 
           client.send(peer, Get(key))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(GetResponse(key, Option(-1)))
+          client.expectMsg(3 seconds, GetResponse(key, Some(-1)))
         }
       }
 
@@ -63,12 +66,12 @@ trait PeerInsertDeleteGetTests
           client.send(peer, Insert(key, 1))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(MutationAck(key))
+          client.expectMsg(3.seconds, OperationAck(key))
 
           client.send(peer, Remove(key))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(MutationAck(key))
+          client.expectMsg(OperationAck(key))
 
           client.send(peer, Get(key))
           successor.expectMsg(FindSuccessor(key.id))

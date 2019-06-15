@@ -38,11 +38,13 @@ trait DistributedHashTablePeer { this: Actor =>
 
 object RoutingActor {
   sealed trait RoutingMessage
-  case class JoinVia(seed: ActorRef) extends RoutingMessage
+  case class  JoinVia(seed: ActorRef) extends RoutingMessage
   case object FindPredecessor extends RoutingMessage
-  case class PredecessorFound(predecessor: PeerEntry) extends RoutingMessage
-  case class FindSuccessor(id: Long) extends RoutingMessage
-  case class SuccessorFound(nearestSuccessor: PeerEntry) extends RoutingMessage
+  case class  PredecessorFound(predecessor: PeerEntry) extends RoutingMessage
+  case class  FindSuccessor(id: Long) extends RoutingMessage
+  case class  SuccessorFound(nearestSuccessor: PeerEntry) extends RoutingMessage
+  case object GetSuccessorList extends RoutingMessage
+  case class  SuccessorList(successors: List[PeerEntry]) extends RoutingMessage
 
   sealed trait HelperOperation
   case object Heartbeatify extends HelperOperation
@@ -113,6 +115,8 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
       log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
       context.become(serving(fingerTable.updateHeadEntry(newSuccessorList.head), newSuccessorList, predecessor, successorIdxToFind))
+
+    case GetSuccessorList => sender ! SuccessorList(successorEntries)
 
     // HelperOperation
     case Heartbeatify =>

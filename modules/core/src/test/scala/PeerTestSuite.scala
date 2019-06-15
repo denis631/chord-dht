@@ -3,6 +3,7 @@ package peer
 import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.testkit.{TestKit, TestProbe}
 import org.scalatest.BeforeAndAfterAll
+import peer.application.StorageActor.{_Persist, _Unpersist}
 import peer.application.{DataStoreKey, StorageActor}
 import peer.routing.{PeerEntry, RoutingActor}
 import peer.routing.RoutingActor.{PredecessorFound, SuccessorFound}
@@ -21,7 +22,7 @@ class PeerTestSuite
     with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")
-  val storageActorCreation = (peerId: Long) => StorageActor.props(peerId, 1 second, 1 second, isStabilizing = false)
+  val storageActorCreation = (peerId: Long) => StorageActor.props(peerId, 1 second, 1 second, isStabilizing = false, r = 1, w = 1)
   val routingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second)
   val seedRoutingActorCreation = (peerId: Long) => RoutingActor.props(peerId, 1 second, 1 second, isSeed = true)
 
@@ -32,6 +33,10 @@ class PeerTestSuite
   def withPeerAndSuccessor(actorFactory: Long => Props)(peerId: Long = 11, successorId: Long = 3)(test: (PeerEntry, ActorRef, PeerEntry, TestProbe) => Any): Unit = {
     val peer = system.actorOf(actorFactory(peerId))
     val successor = TestProbe()
+    successor.ignoreMsg {
+      case _: _Persist => true
+      case _: _Unpersist => true
+    }
     val peerEntry = PeerEntry(peerId, peer)
     val successorEntry = PeerEntry(successorId, successor.ref)
     peer ! SuccessorFound(successorEntry)
