@@ -13,6 +13,7 @@ There are two modules: _core_ and _monitor_
 The _core_ module provides implementation of the service which should be running on every peer.
 
 The routing/messaging implementation is based on the architecture described in the [Chord paper](https://pdos.csail.mit.edu/papers/ton:chord/paper-ton.pdf).
+
 Leaderless replication is performed where quorum reads and writes are required for them to be successful. Writes/Reads are performed on the whole successor list
 
 ### Monitor ###
