@@ -6,7 +6,7 @@ import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server._
 import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
-import messages.{MessagesJSONFormatting, PeerDied, PeerStatus, PeerUpdate}
+import messages.{MessagesJSONFormatting, PeerDied, PeerState, PeerUpdate}
 import spray.json._
 
 import scala.concurrent.duration._
@@ -17,54 +17,57 @@ class WebService extends HttpApp with MessagesJSONFormatting {
   implicit val materializer = ActorMaterializer()
 
   class DHTMonitor {
-    private var state: Map[Long, PeerUpdate] = Map.empty
-    private var stateStream: Map[Long, SourceQueueWithComplete[Unit]] = Map.empty
+    type NodeId = Long
+    private var liveNodesCurrentStateMap: Map[NodeId, PeerUpdate] = Map.empty
+    private var nodeStateStreamMap: Map[NodeId, SourceQueueWithComplete[Unit]] = Map.empty
 
     val bufferSize = 1000
 
-    val (inputQueue, queueSource) = Source
-      .queue[PeerStatus](bufferSize, OverflowStrategy.dropHead)
-      .via(eventsToMessagesFlow)
+    val (monitorNodeStateMessagesProcessingQueue, monitorStateSource) = Source
+      .queue[PeerState](bufferSize, OverflowStrategy.dropHead)
+      .via(nodeStateUpdateEventsToMessageFlow)
       .preMaterialize()
 
-    def eventsToMessagesFlow: Flow[PeerStatus, TextMessage.Strict, NotUsed] =
-      Flow[PeerStatus]
+    def nodeStateUpdateEventsToMessageFlow: Flow[PeerState, TextMessage.Strict, NotUsed] =
+      Flow[PeerState]
         .map {
           case status: PeerUpdate => status.toJson.toString
           case status: PeerDied => status.toJson.toString
         }
         .map(TextMessage(_))
 
-    def createStreamIfEmpty(id: Long): SourceQueueWithComplete[Unit] = {
-      if (stateStream.contains(id)) {
-        stateStream(id)
-      } else {
-        val peerIdQueueSource = Source
-          .queue[Unit](bufferSize, OverflowStrategy.dropHead)
-          .idleTimeout(10 seconds)
-          .recoverWithRetries(-1, { case _: scala.concurrent.TimeoutException =>
-            Source.single(Unit)
-          })
-          .reduce((_, curr) => curr)
-          .to(Sink.foreach { _ =>
-            state -= id
-            val _ = inputQueue offer PeerDied(id)
-          })
-          .run()
+    def initStateStreamForNode(id: NodeId): SourceQueueWithComplete[Unit] = {
+      Source
+        .queue[Unit](bufferSize, OverflowStrategy.dropHead)
+        .idleTimeout(10 seconds)
+        .recoverWithRetries(-1, { case _: scala.concurrent.TimeoutException =>
+          Source.single(Unit)
+        })
+        .reduce((_, curr) => curr)
+        .to(Sink.foreach { _ =>
+          liveNodesCurrentStateMap -= id
+          val _ = monitorNodeStateMessagesProcessingQueue offer PeerDied(id)
+        })
+        .run()
+    }
 
-        stateStream += id -> peerIdQueueSource
-        peerIdQueueSource
+    def stateStreamForNode(id: NodeId): SourceQueueWithComplete[Unit] = {
+      if (nodeStateStreamMap.contains(id)) {
+        nodeStateStreamMap(id)
+      } else {
+        val nodeStateStream = initStateStreamForNode(id)
+        nodeStateStreamMap += id -> nodeStateStream
+        nodeStateStream
       }
     }
 
-    def updatePeerStatus(peerStatus: PeerUpdate): Unit = {
-      inputQueue offer peerStatus
-      createStreamIfEmpty(peerStatus.nodeId) offer Unit // heart-beat like mechanism to delay the kill messages
-
-      state += peerStatus.nodeId -> peerStatus
+    def updatePeerStatus(peerState: PeerUpdate): Unit = {
+      monitorNodeStateMessagesProcessingQueue offer peerState
+      stateStreamForNode(peerState.nodeId) offer Unit // heart-beat like mechanism to delay the kill messages
+      liveNodesCurrentStateMap += peerState.nodeId -> peerState
     }
 
-    def currentDHTState: List[PeerUpdate] = state.values.toList
+    def currentDHTState: List[PeerUpdate] = liveNodesCurrentStateMap.values.toList
   }
 
   val dhtMonitor = new DHTMonitor()
@@ -88,7 +91,7 @@ class WebService extends HttpApp with MessagesJSONFormatting {
     } ~
     pathEndOrSingleSlash {
       get {
-        handleWebSocketMessages(Flow.fromSinkAndSource(Sink.ignore, dhtMonitor.queueSource))
+        handleWebSocketMessages(Flow.fromSinkAndSource(Sink.ignore, dhtMonitor.monitorStateSource))
       }
     } ~
     getFromDirectory("universal/stage/resources/webapp") ~ 
