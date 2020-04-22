@@ -1,4 +1,4 @@
-package webApp
+package webapp
 
 import akka.NotUsed
 import akka.actor.ActorSystem

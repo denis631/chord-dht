@@ -1,4 +1,4 @@
-package webApp
+package webapp
 
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
@@ -8,7 +8,7 @@ import scala.concurrent.duration._
 import scala.util.Properties
 import scala.io.StdIn
 
-object WebServer extends App {
+object Main extends App {
   implicit val system = ActorSystem()
   implicit val materializer = ActorMaterializer()
   implicit val timeout: Timeout = 3.seconds

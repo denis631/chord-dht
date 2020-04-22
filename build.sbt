@@ -27,12 +27,12 @@ val akkaHttpVersion = "10.1.8"
 
 val commonDependencies = Seq(
   // logging
-  "com.typesafe.akka"        %% "akka-slf4j"               % akkaVersion,
-  "ch.qos.logback"            % "logback-classic"          % "1.2.3",
+  "com.typesafe.akka" %% "akka-slf4j"      % akkaVersion,
+  "ch.qos.logback"    %  "logback-classic" % "1.2.3",
   // testing
-  "org.scalacheck"           %% "scalacheck"               % "1.13.5"    % Test,
-  "junit"                    % "junit"                     % "4.10"      % Test,
-  "org.scalatest"            %% "scalatest"                % "3.0.5"     % Test,
+  "org.scalacheck"    %% "scalacheck"      % "1.13.5" % Test,
+  "junit"             % "junit"            % "4.10"   % Test,
+  "org.scalatest"     %% "scalatest"       % "3.0.5"  % Test,
 )
 
 lazy val core = project.in(file("modules/core"))
@@ -47,17 +47,17 @@ lazy val core = project.in(file("modules/core"))
 lazy val messages = project.in(file("modules/messages"))
   .settings(commonSettings: _*)
   .settings(libraryDependencies ++= Seq(
-    "com.typesafe.akka"        %% "akka-http"               % akkaHttpVersion,
-    "com.typesafe.akka"        %% "akka-http-testkit"       % akkaHttpVersion % Test,
-    "com.typesafe.akka"        %% "akka-http-spray-json"    % akkaHttpVersion,
+    "com.typesafe.akka"  %% "akka-http"            % akkaHttpVersion,
+    "com.typesafe.akka"  %% "akka-http-testkit"    % akkaHttpVersion % Test,
+    "com.typesafe.akka"  %% "akka-http-spray-json" % akkaHttpVersion,
 
-    "com.typesafe.akka"        %% "akka-stream"              % akkaVersion,
-    "com.typesafe.akka"        %% "akka-stream-testkit"      % akkaVersion % Test,
-    "com.typesafe.akka"        %% "akka-stream-typed"        % akkaVersion,
+    "com.typesafe.akka"  %% "akka-stream"          % akkaVersion,
+    "com.typesafe.akka"  %% "akka-stream-testkit"  % akkaVersion % Test,
+    "com.typesafe.akka"  %% "akka-stream-typed"    % akkaVersion,
   ))
 
 lazy val monitor = project.in(file("modules/monitor"))
-  .dependsOn(messages)
   .settings(commonSettings: _*)
   .settings(libraryDependencies ++= commonDependencies)
   .settings(libraryDependencies += "ch.megard" %% "akka-http-cors" % "0.4.0")
+  .dependsOn(messages)

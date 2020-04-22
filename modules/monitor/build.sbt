@@ -1,6 +1,5 @@
 enablePlugins(JavaAppPackaging)
 
-mainClass in Compile := Some("webApp.WebServer")
 herokuAppName in Compile := "dht-monitor"
 
 import NativePackagerHelper._
