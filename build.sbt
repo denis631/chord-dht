@@ -3,7 +3,7 @@ name := "chord-dht"
 lazy val commonSettings = Seq(
   organization := "de.denisgrebennicov",
   version := "0.0.1",
-  scalaVersion := "2.12.8",
+  scalaVersion := "2.12.11",
   scalacOptions := Seq(
     "-feature",
     "-deprecation",
@@ -18,7 +18,7 @@ lazy val commonSettings = Seq(
   )
 )
 
-scalaVersion in ThisBuild := "2.12.8"
+scalaVersion in ThisBuild := "2.12.11"
 
 parallelExecution in Test := false
 

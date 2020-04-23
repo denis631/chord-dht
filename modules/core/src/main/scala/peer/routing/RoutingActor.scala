@@ -7,14 +7,10 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
-case class PeerEntry(id: Long, ref: ActorRef) {
-  override def toString: String = s"Peer: id: $id"
-}
-
 object DistributedHashTablePeer {
   val replicationFactor = 1 //TODO: implement replication
   val ringSize = 64
-  val requiredSuccessorListLength = 4
+  val requiredSuccessorListLength = 2 //TODO: how to define this number
 }
 
 trait DistributedHashTablePeer { this: Actor =>
@@ -76,7 +72,7 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
   val stabilizationActor: ActorRef = context.actorOf(StabilizationActor.props(peerEntry, stabilizationTimeout))
   val fixFingersActor: ActorRef = context.actorOf(FixFingersActor.props(stabilizationTimeout))
 
-  override def receive: Receive = if(isSeed) serving(new FingerTable(id, peerEntry), List(peerEntry), Option.empty, 0) else joining()
+  override def receive: Receive = if(isSeed) serving(new FingerTable(id, peerEntry), List.empty, Option.empty, 0) else joining()
 
   def joining(): Receive = {
     case JoinVia(seed: ActorRef) =>
@@ -93,21 +89,36 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
       log.debug(s"sending current predecessor $predecessor to $sender of node $id")
       predecessor.foreach(sender ! PredecessorFound(_))
 
+    // case PredecessorFound(peer) if predecessor.isEmpty || (PeerIdRange(predecessor.get.id, id) contains peer.id) =>
     case PredecessorFound(peer) if predecessor.isEmpty || peer.id.relativeToPeer > predecessor.get.id.relativeToPeer =>
       log.debug(s"predecessor found for node ${peer.id} <- $id")
       context.become(serving(fingerTable, successorEntries, Option(peer), successorIdxToFind))
 
     case msg @ FindSuccessor(otherPeerId) =>
       log.debug(s"looking for successor for $otherPeerId at node $id")
-      if (idInPeerRange(successorEntries.head.id, otherPeerId)) {
-        sender ! SuccessorFound(successorEntries.head)
+
+      //TODO: fix the problem of sending "SuccessorFound" messages to oneself, even though nothing is found
+      if (successorEntries.isEmpty) {
+        if (sender != self) {
+          sender ! SuccessorFound(peerEntry)
+          self ! SuccessorFound(PeerEntry(otherPeerId, sender))
+        }
       } else {
-        fingerTable(otherPeerId).ref forward msg
+        val closestSuccessor = successorEntries.head.id
+        val rangeBetweenPeerAndSuccessor = PeerIdRange(id, closestSuccessor)
+        val otherPeerIdIsCloserToPeerThanClosestSuccessor = rangeBetweenPeerAndSuccessor contains otherPeerId
+
+        if (otherPeerIdIsCloserToPeerThanClosestSuccessor) {
+          sender ! SuccessorFound(successorEntries.head)
+        } else {
+          fingerTable(otherPeerId).ref forward msg
+        }
       }
 
     case SuccessorFound(nearestSuccessorEntry) =>
       val newSuccessorList =
-        (nearestSuccessorEntry :: successorEntries.filter(_.id != peerEntry.id))
+        (nearestSuccessorEntry::successorEntries)
+        .filter(_.id != id)
         .sortBy(_.id.relativeToPeer)
         .distinct
         .take(DistributedHashTablePeer.requiredSuccessorListLength)
@@ -125,9 +136,12 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
 
     case Stabilize => stabilizationActor ! StabilizationRun(successorEntries.head)
 
-    case FixFingers => fingerTable.idPlusOffsetList.zipWithIndex.foreach { case (successorId, idx) =>
-      fixFingersActor ! FindSuccessorForFinger(successorId, idx)
-    }
+    case FixFingers =>
+      fingerTable
+        .idPlusOffsetList
+        .zipWithIndex
+        .map { case (successorId, idx) => FindSuccessorForFinger(successorId, idx) }
+        .foreach(fixFingersActor ! _)
 
     case FindMissingSuccessors if successorEntries.length < DistributedHashTablePeer.requiredSuccessorListLength =>
       val peerIdToLookFor = successorIdxToFind match {

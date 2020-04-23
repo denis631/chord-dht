@@ -18,7 +18,11 @@ class FingerTable(peerId: Long, val table: List[PeerEntry]) {
   def updateHeadEntry(newPeerEntry: PeerEntry): FingerTable = updateEntryAtIdx(newPeerEntry, FingerTable.tableSize-1)
 
   def updateEntryAtIdx(newPeerEntry: PeerEntry, idx: Int): FingerTable =
-    new FingerTable(peerId, table.take(idx) ++ List(newPeerEntry) ++ table.drop(idx+1))
+    if (table.forall(_.id == peerId)) {
+      new FingerTable(peerId, newPeerEntry)
+    } else {
+      new FingerTable(peerId, table.take(idx) ++ List(newPeerEntry) ++ table.drop(idx+1))
+    }
 
   def nearestActorForId(id: Long): PeerEntry = {
     val relativeId = if (id < peerId) id + DistributedHashTablePeer.ringSize else id

@@ -3,11 +3,12 @@ package peer.routing.helperActors
 import akka.pattern.ask
 import akka.actor.{Actor, Props}
 import akka.util.Timeout
-import peer.routing.{DistributedHashTablePeer, PeerEntry}
+import peer.routing.PeerEntry
 import peer.routing.RoutingActor.{FindPredecessor, PredecessorFound, SuccessorFound}
 import peer.routing.helperActors.StabilizationActor.StabilizationRun
 
 import scala.concurrent.ExecutionContext
+import peer.routing.PeerIdRange
 
 object StabilizationActor {
   case class StabilizationRun(successorPeer: PeerEntry)
@@ -15,31 +16,22 @@ object StabilizationActor {
   def props(peerEntry: PeerEntry, stabilizationTimeout: Timeout): Props = Props(new StabilizationActor(peerEntry, stabilizationTimeout))
 }
 
-class StabilizationActor(val parentPeerEntry: PeerEntry, val stabilizationTimeout: Timeout) extends Actor {
+class StabilizationActor(val peer: PeerEntry, val stabilizationTimeout: Timeout) extends Actor {
   implicit val ec: ExecutionContext = context.dispatcher
 
-  var successorPeer: Option[PeerEntry] = Option.empty
-
   override def receive: Receive = {
-    case StabilizationRun(peer) =>
-      successorPeer = Option(peer)
-
-      (peer.ref ? FindPredecessor)(stabilizationTimeout)
+    case StabilizationRun(successorPeer) =>
+      (successorPeer.ref ? FindPredecessor)(stabilizationTimeout)
         .mapTo[PredecessorFound]
-        .map { case PredecessorFound(possibleSuccessor) =>
-          val isNewSuccessor = if (peer.id <= parentPeerEntry.id) {
-            val ringSize = DistributedHashTablePeer.ringSize
-            (parentPeerEntry.id < possibleSuccessor.id && possibleSuccessor.id <= ringSize - 1) || (-1 < possibleSuccessor.id && possibleSuccessor.id < peer.id)
-          } else {
-            parentPeerEntry.id < possibleSuccessor.id && possibleSuccessor.id < peer.id
-          }
-
-          if (isNewSuccessor) possibleSuccessor else peer
+        .map { case PredecessorFound(potentialSuccessor) =>
+          val peerIdRange = PeerIdRange(peer.id, successorPeer.id)
+          val isNewSuccessor = peerIdRange contains potentialSuccessor.id
+          if (isNewSuccessor) potentialSuccessor else successorPeer
         }
-        .recover { case _ => peer }
+        .recover { case _ => successorPeer }
         .foreach { successor =>
-          successor.ref ! PredecessorFound(parentPeerEntry)
-          parentPeerEntry.ref ! SuccessorFound(successor)
+          successor.ref ! PredecessorFound(peer)
+          peer.ref ! SuccessorFound(successor)
         }
   }
 }

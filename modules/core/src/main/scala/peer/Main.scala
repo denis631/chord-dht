@@ -13,12 +13,14 @@ object Main extends App {
   implicit val system = ActorSystem.create()
   implicit val ec = ExecutionContext.global
 
-  val seed = system.actorOf(StorageActor.props(60, stabilizationDuration = 300 millis, isSeed = true, statusUploader = Option(new StatusUploader)))
+  val seed = system.actorOf(StorageActor.props(60, stabilizationDuration = 1000 millis, isSeed = true, statusUploader = Option(new StatusUploader)))
+  //TODO: remove this. create a java instance for every peer
   val newPeerIds = List(1,8,14,21,32,38,42,48,51)
 
   val peers = newPeerIds
-    .map { id => system.actorOf(StorageActor.props(id, stabilizationDuration = 300 millis, statusUploader = Option(new StatusUploader))) }
+    .map { id => system.actorOf(StorageActor.props(id, stabilizationDuration = 1000 millis, statusUploader = Option(new StatusUploader))) }
 
+  //TODO: join the system via a seed which is specified in the config/args
   peers.foreach { actor => actor ! JoinVia(seed) }
 
   system.scheduler.scheduleOnce(10 seconds) {
