@@ -1,18 +1,21 @@
 package peer.routing
 
+import peer.application.Types._
+import peer.application.DistributedHashTablePeer
+
 object FingerTable {
   private def log2: Double => Double = (x: Double) => Math.log10(x)/Math.log10(2.0)
   def tableSize: Int = log2(DistributedHashTablePeer.ringSize).toInt
 }
 
-class FingerTable(peerId: Long, val table: List[PeerEntry]) {
-  def this(peerId: Long, fillPeerEntry: PeerEntry) {
+class FingerTable(peerId: PeerId, val table: List[PeerEntry]) {
+  def this(peerId: PeerId, fillPeerEntry: PeerEntry) {
     this(peerId, List.fill(FingerTable.tableSize)(fillPeerEntry))
   }
 
-  def idPlusOffsetList: List[Long] = List // 32, 16, 8, 4, 2, 1 offset + peerId
+  def idPlusOffsetList: List[PeerId] = List // 32, 16, 8, 4, 2, 1 offset + peerId
     .fill(FingerTable.tableSize-1)(1)
-    .foldLeft[List[Long]](List(1)) { (acc, _) => (acc.head * 2) :: acc }
+    .foldLeft[List[PeerId]](List(1)) { (acc, _) => (acc.head * 2) :: acc }
     .map(_ + peerId)
 
   def updateHeadEntry(newPeerEntry: PeerEntry): FingerTable = updateEntryAtIdx(newPeerEntry, FingerTable.tableSize-1)
@@ -24,7 +27,7 @@ class FingerTable(peerId: Long, val table: List[PeerEntry]) {
       new FingerTable(peerId, table.take(idx) ++ List(newPeerEntry) ++ table.drop(idx+1))
     }
 
-  def nearestActorForId(id: Long): PeerEntry = {
+  def nearestActorForId(id: PeerId): PeerEntry = {
     val relativeId = if (id < peerId) id + DistributedHashTablePeer.ringSize else id
 
     val possiblePeers = table
@@ -35,7 +38,7 @@ class FingerTable(peerId: Long, val table: List[PeerEntry]) {
     if (possiblePeers.isEmpty) table.head else possiblePeers.head
   }
 
-  def apply(id: Long): PeerEntry = nearestActorForId(id)
+  def apply(id: PeerId): PeerEntry = nearestActorForId(id)
 
   override def toString: String =
     s"finger table for node $peerId: \n" +

@@ -3,7 +3,7 @@ package peer.routing.helperActors
 import akka.pattern.{ask, pipe}
 import akka.actor.{Actor, ActorRef, Props}
 import akka.util.Timeout
-import peer.routing.PeerEntry
+import peer.application.Types._
 import peer.routing.helperActors.HeartbeatActor._
 
 import scala.concurrent.ExecutionContext

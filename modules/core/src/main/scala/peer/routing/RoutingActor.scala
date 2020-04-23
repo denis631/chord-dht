@@ -7,37 +7,15 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
-object DistributedHashTablePeer {
-  val replicationFactor = 1 //TODO: implement replication
-  val ringSize = 64
-  val requiredSuccessorListLength = 2 //TODO: how to define this number
-}
-
-trait DistributedHashTablePeer { this: Actor =>
-  implicit val ec: ExecutionContext = context.dispatcher
-  val id: Long
-
-  implicit class RichLong(otherId: Long) {
-    def relativeToPeer: Long = if (otherId < id) otherId + DistributedHashTablePeer.ringSize else otherId
-  }
-
-  def peerEntry: PeerEntry = PeerEntry(id, self)
-
-  def idInPeerRange(successorId: Long, otherId: Long): Boolean = {
-    if (successorId <= id) {
-      (id < otherId && otherId <= DistributedHashTablePeer.ringSize - 1) || (-1 < otherId && otherId <= successorId)
-    } else {
-      id < otherId && otherId <= successorId
-    }
-  }
-}
+import peer.application.DistributedHashTablePeer
+import peer.application.Types._
 
 object RoutingActor {
   sealed trait RoutingMessage
   case class  JoinVia(seed: ActorRef) extends RoutingMessage
   case object FindPredecessor extends RoutingMessage
   case class  PredecessorFound(predecessor: PeerEntry) extends RoutingMessage
-  case class  FindSuccessor(id: Long) extends RoutingMessage
+  case class  FindSuccessor(id: PeerId) extends RoutingMessage
   case class  SuccessorFound(nearestSuccessor: PeerEntry) extends RoutingMessage
   case object GetSuccessorList extends RoutingMessage
   case class  SuccessorList(successors: List[PeerEntry]) extends RoutingMessage
@@ -48,12 +26,17 @@ object RoutingActor {
   case object FindMissingSuccessors extends HelperOperation
   case object FixFingers extends HelperOperation
 
-  def props(id: Long, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), stabilizationDuration: FiniteDuration = 5 seconds, isSeed: Boolean = false, statusUploader: Option[StatusUploader] = Option.empty): Props =
+  def props(id: PeerId, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), stabilizationDuration: FiniteDuration = 5 seconds, isSeed: Boolean = false, statusUploader: Option[StatusUploader] = Option.empty): Props =
     Props(new RoutingActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, statusUploader))
 }
 
-class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizationTimeout: Timeout, val stabilizationDuration: FiniteDuration, isSeed: Boolean, statusUploader: Option[StatusUploader])
-  extends Actor
+class RoutingActor(val id: PeerId,
+                   val operationTimeout: Timeout,
+                   val stabilizationTimeout: Timeout,
+                   val stabilizationDuration: FiniteDuration,
+                   isSeed: Boolean,
+                   statusUploader: Option[StatusUploader])
+    extends Actor
     with DistributedHashTablePeer
     with ActorLogging {
 
@@ -122,10 +105,10 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
     case SuccessorFound(nearestSuccessorEntry) =>
       val newSuccessorList =
         (nearestSuccessorEntry::state.successorEntries)
-        .filter(_.id != id)
-        .sortBy(_.id.relativeToPeer)
-        .distinct
-        .take(DistributedHashTablePeer.requiredSuccessorListLength)
+          .filter(_.id != id)
+          .sortBy(_.id.relativeToPeer)
+          .distinct
+          .take(DistributedHashTablePeer.requiredSuccessorListLength)
 
       log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
@@ -150,10 +133,10 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
 
     case FindMissingSuccessors if state.successorEntries.length < DistributedHashTablePeer.requiredSuccessorListLength =>
       val peerIdToLookFor = (successorIdxToFind match {
-        case 0 => peerEntry.id + 1
-        case idx if state.successorEntries.length >= idx => state.successorEntries(idx.toInt - 1).id + 1
-        case _ => state.successorEntries.last.id + 1
-      }) % DistributedHashTablePeer.ringSize
+                               case 0 => peerEntry.id + 1
+                               case idx if state.successorEntries.length >= idx => state.successorEntries(idx.toInt - 1).id + 1
+                               case _ => state.successorEntries.last.id + 1
+                             }) % DistributedHashTablePeer.ringSize
 
       self ! FindSuccessor(peerIdToLookFor)
       context.become(serving(ServingPeerState(id, state.successorEntries, state.predecessorEntry, state.fingerTable),

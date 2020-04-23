@@ -2,8 +2,9 @@ package peer
 
 import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
-import peer.routing.{DistributedHashTablePeer, FingerTable, PeerEntry, PeerIdRange}
-
+import peer.routing.FingerTable
+import peer.application.DistributedHashTablePeer
+import peer.application.Types._
 
 trait FingerTableTests
     extends fixture.FunSpec

@@ -5,7 +5,8 @@ import akka.testkit.TestProbe
 import org.scalatest.{Matchers, fixture}
 
 import scala.concurrent.duration._
-import peer.routing.{PeerEntry, RoutingActor}
+import peer.application.Types._
+import peer.routing.RoutingActor
 import peer.routing.RoutingActor.{FindSuccessor, JoinVia, SuccessorFound}
 import peer.routing.helperActors.HeartbeatActor.HeartbeatNackForSuccessor
 

@@ -3,12 +3,11 @@ package peer.routing.helperActors
 import akka.pattern.ask
 import akka.actor.{Actor, Props}
 import akka.util.Timeout
-import peer.routing.PeerEntry
+import peer.application.Types._
 import peer.routing.RoutingActor.{FindPredecessor, PredecessorFound, SuccessorFound}
 import peer.routing.helperActors.StabilizationActor.StabilizationRun
 
 import scala.concurrent.ExecutionContext
-import peer.routing.PeerIdRange
 
 object StabilizationActor {
   case class StabilizationRun(successorPeer: PeerEntry)

@@ -6,12 +6,29 @@ import akka.util.Timeout
 import peer.application.StorageActor._
 import peer.application.ReplicationActor._
 import peer.routing.RoutingActor._
-import peer.routing.{DistributedHashTablePeer, RoutingActor, StatusUploader}
+import peer.routing.{RoutingActor, StatusUploader}
+import peer.application.Types._
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 import language.postfixOps
 import scala.util.Success
+
+object DistributedHashTablePeer {
+  val ringSize = 64
+  val requiredSuccessorListLength = 2 //TODO: how to define this number
+}
+
+trait DistributedHashTablePeer { this: Actor =>
+  implicit val ec: ExecutionContext = context.dispatcher
+  val id: PeerId
+
+  implicit class RichLong(otherId: PeerId) {
+    def relativeToPeer: PeerId = if (otherId < id) otherId + DistributedHashTablePeer.ringSize else otherId
+  }
+
+  def peerEntry: PeerEntry = PeerEntry(id, self)
+}
 
 object StorageActor {
   val minNumberOfSuccessfulReads: Int = Math.ceil((DistributedHashTablePeer.requiredSuccessorListLength + 1) / 2).toInt
@@ -115,6 +132,7 @@ class StorageActor(id: Long,
       context.become(serving(dataStore + (key -> placeholder)))
       sender ! OperationAck(key)
 
+    //TODO: why not return Option[PersistedDataStoreValue]
     case _ValueForKey(key) => sender ! dataStore.getOrElse(key, PersistedDataStoreValue(None, -1))
 
     case _Get(key) =>
@@ -157,6 +175,7 @@ class StorageActor(id: Long,
         val peers = self::successors.map(_.ref)
         log.debug(s"successor list before persisting: $peers")
         if (peers.length < minNumberOfSuccessfulWrites) Future(OperationNack(op.key))
+        //TODO: what about timeout -> will the Nack be forwarded? -> add test
         else                                            replicationActor ? Replicate(op.toMutableOp, peers)
       }
       .pipeTo(sender)

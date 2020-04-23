@@ -5,7 +5,8 @@ import akka.testkit.{TestKit, TestProbe}
 import org.scalatest.BeforeAndAfterAll
 import peer.application.StorageActor.{_Persist, _Unpersist}
 import peer.application.{DataStoreKey, StorageActor}
-import peer.routing.{PeerEntry, RoutingActor}
+import peer.application.Types._
+import peer.routing.RoutingActor
 import peer.routing.RoutingActor.{PredecessorFound, SuccessorFound}
 
 import scala.concurrent.duration._

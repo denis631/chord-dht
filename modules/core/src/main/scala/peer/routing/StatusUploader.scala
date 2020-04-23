@@ -6,6 +6,7 @@ import akka.http.scaladsl.model.headers.RawHeader
 import akka.http.scaladsl.model.{ContentTypes, HttpEntity, HttpMethods, HttpRequest}
 import spray.json._
 import messages.PeerStatus
+import peer.application.Types._
 
 class StatusUploader(implicit val system: ActorSystem) extends messages.MessagesJSONFormatting {
   def uploadStatus(peerState: ServingPeerState): Unit = {

@@ -26,7 +26,7 @@ class ReplicationActor(w: Int, replicationTimeout: Timeout) extends Actor {
       val _ = Future
         .sequence(peers.map(_ ? op).map(_.transform(Success(_))))
         .map(_.collect { case Success(x) => x })
-        .map(coll => if (coll.length < w) OperationNack(op.key) else OperationAck(op.key))
+        .map(successfulWrites => if (successfulWrites.length < w) OperationNack(op.key) else OperationAck(op.key))
         .pipeTo(sender)
     }
 }
