@@ -72,7 +72,7 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
   val stabilizationActor: ActorRef = context.actorOf(StabilizationActor.props(peerEntry, stabilizationTimeout))
   val fixFingersActor: ActorRef = context.actorOf(FixFingersActor.props(stabilizationTimeout))
 
-  override def receive: Receive = if(isSeed) serving(new FingerTable(id, peerEntry), List.empty, Option.empty, 0) else joining()
+  override def receive: Receive = if(isSeed) serving(ServingPeerState(id, List.empty, Option.empty, new FingerTable(id, peerEntry)), 0) else joining()
 
   def joining(): Receive = {
     case JoinVia(seed: ActorRef) =>
@@ -81,43 +81,47 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
 
     case SuccessorFound(successorEntry) =>
       log.debug(s"successor found for node $id -> ${successorEntry.id}")
-      context.become(serving(new FingerTable(id, successorEntry), List(successorEntry), Option.empty, 0))
+      context.become(serving(ServingPeerState(id, List(successorEntry), Option.empty, new FingerTable(id, successorEntry)), 0))
   }
 
-  def serving(fingerTable: FingerTable, successorEntries: List[PeerEntry], predecessor: Option[PeerEntry], successorIdxToFind: Long): Receive = {
+  def serving(state: ServingPeerState, successorIdxToFind: Long): Receive = {
     case FindPredecessor =>
-      log.debug(s"sending current predecessor $predecessor to $sender of node $id")
-      predecessor.foreach(sender ! PredecessorFound(_))
+      log.debug(s"sending current predecessor $state.predecessorEntry to $sender of node $id")
+      state.predecessorEntry.foreach(sender ! PredecessorFound(_))
 
-    // case PredecessorFound(peer) if predecessor.isEmpty || (PeerIdRange(predecessor.get.id, id) contains peer.id) =>
-    case PredecessorFound(peer) if predecessor.isEmpty || peer.id.relativeToPeer > predecessor.get.id.relativeToPeer =>
-      log.debug(s"predecessor found for node ${peer.id} <- $id")
-      context.become(serving(fingerTable, successorEntries, Option(peer), successorIdxToFind))
+    case PredecessorFound(potentialPredecessor)
+        if state.predecessorEntry.isEmpty || (PeerIdRange(state.predecessorEntry.get.id, id-1) contains potentialPredecessor.id) =>
+      log.debug(s"predecessor found for node ${potentialPredecessor.id} <- $id")
+      context.become(serving(ServingPeerState(id, state.successorEntries, Option(potentialPredecessor), state.fingerTable), successorIdxToFind))
+
+    // corner case, when serving node has no successor entries
+    // bootstraping node isalone in the network
+    // in this case -> mark them as your new successor
+    //              -> mark yourself as successor for them
+    //
+    // only in case where sender is not self (can happen when fixing finger table entries)
+    case msg @ FindSuccessor(otherPeerId) if state.successorEntries.isEmpty =>
+      if (sender != self) {
+        sender ! SuccessorFound(peerEntry)
+        self ! SuccessorFound(PeerEntry(otherPeerId, sender))
+      }
 
     case msg @ FindSuccessor(otherPeerId) =>
       log.debug(s"looking for successor for $otherPeerId at node $id")
 
-      //TODO: fix the problem of sending "SuccessorFound" messages to oneself, even though nothing is found
-      if (successorEntries.isEmpty) {
-        if (sender != self) {
-          sender ! SuccessorFound(peerEntry)
-          self ! SuccessorFound(PeerEntry(otherPeerId, sender))
-        }
-      } else {
-        val closestSuccessor = successorEntries.head.id
-        val rangeBetweenPeerAndSuccessor = PeerIdRange(id, closestSuccessor)
-        val otherPeerIdIsCloserToPeerThanClosestSuccessor = rangeBetweenPeerAndSuccessor contains otherPeerId
+      val closestSuccessor = state.successorEntries.head.id
+      val rangeBetweenPeerAndSuccessor = PeerIdRange(id, closestSuccessor)
+      val otherPeerIdIsCloserToPeerThanClosestSuccessor = rangeBetweenPeerAndSuccessor contains otherPeerId
 
-        if (otherPeerIdIsCloserToPeerThanClosestSuccessor) {
-          sender ! SuccessorFound(successorEntries.head)
-        } else {
-          fingerTable(otherPeerId).ref forward msg
-        }
+      if (otherPeerIdIsCloserToPeerThanClosestSuccessor) {
+        sender ! SuccessorFound(state.successorEntries.head)
+      } else {
+        state.fingerTable(otherPeerId).ref forward msg
       }
 
     case SuccessorFound(nearestSuccessorEntry) =>
       val newSuccessorList =
-        (nearestSuccessorEntry::successorEntries)
+        (nearestSuccessorEntry::state.successorEntries)
         .filter(_.id != id)
         .sortBy(_.id.relativeToPeer)
         .distinct
@@ -125,53 +129,60 @@ class RoutingActor(val id: Long, val operationTimeout: Timeout, val stabilizatio
 
       log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
       log.debug(s"new successor list for node $id is now: $newSuccessorList")
-      context.become(serving(fingerTable.updateHeadEntry(newSuccessorList.head), newSuccessorList, predecessor, successorIdxToFind))
+      context.become(serving(ServingPeerState(id, newSuccessorList, state.predecessorEntry, state.fingerTable.updateHeadEntry(newSuccessorList.head)),
+                             successorIdxToFind))
 
-    case GetSuccessorList => sender ! SuccessorList(successorEntries)
+    case GetSuccessorList => sender ! SuccessorList(state.successorEntries)
 
     // HelperOperation
     case Heartbeatify =>
-      predecessor.map(_.ref).foreach(heartbeatActor ! HeartbeatRunForPredecessor(_))
-      successorEntries.foreach(heartbeatActor ! HeartbeatRunForSuccessor(_))
+      state.predecessorEntry.map(_.ref).foreach(heartbeatActor ! HeartbeatRunForPredecessor(_))
+      state.successorEntries.foreach(heartbeatActor ! HeartbeatRunForSuccessor(_))
 
-    case Stabilize => stabilizationActor ! StabilizationRun(successorEntries.head)
+    case Stabilize => stabilizationActor ! StabilizationRun(state.successorEntries.head)
 
     case FixFingers =>
-      fingerTable
+      state.fingerTable
         .idPlusOffsetList
         .zipWithIndex
         .map { case (successorId, idx) => FindSuccessorForFinger(successorId, idx) }
         .foreach(fixFingersActor ! _)
 
-    case FindMissingSuccessors if successorEntries.length < DistributedHashTablePeer.requiredSuccessorListLength =>
-      val peerIdToLookFor = successorIdxToFind match {
+    case FindMissingSuccessors if state.successorEntries.length < DistributedHashTablePeer.requiredSuccessorListLength =>
+      val peerIdToLookFor = (successorIdxToFind match {
         case 0 => peerEntry.id + 1
-        case idx if successorEntries.length >= idx => successorEntries(idx.toInt - 1).id + 1
-        case _ => successorEntries.last.id + 1
-      }
+        case idx if state.successorEntries.length >= idx => state.successorEntries(idx.toInt - 1).id + 1
+        case _ => state.successorEntries.last.id + 1
+      }) % DistributedHashTablePeer.ringSize
+
       self ! FindSuccessor(peerIdToLookFor)
-      context.become(serving(fingerTable, successorEntries, predecessor, (successorIdxToFind+1) % DistributedHashTablePeer.requiredSuccessorListLength))
+      context.become(serving(ServingPeerState(id, state.successorEntries, state.predecessorEntry, state.fingerTable),
+                             (successorIdxToFind+1) % DistributedHashTablePeer.requiredSuccessorListLength))
 
     // FixFingersMessage
     case SuccessorForFingerFound(successorEntry: PeerEntry, idx: Int) =>
-      statusUploader.foreach(_.uploadStatus(id, predecessor.map(_.id), fingerTable.updateEntryAtIdx(successorEntry, idx).table))
-      context.become(serving(fingerTable.updateEntryAtIdx(successorEntry, idx), successorEntries, predecessor, successorIdxToFind))
+      val newFingerTable = state.fingerTable.updateEntryAtIdx(successorEntry, idx)
+      val newState = ServingPeerState(id, state.successorEntries, state.predecessorEntry, newFingerTable)
+
+      statusUploader.foreach(_.uploadStatus(newState))
+      context.become(serving(newState, successorIdxToFind))
     case SuccessorForFingerNotFound(idx: Int) =>
-      val replacementActorRef = if (idx == FingerTable.tableSize-1) successorEntries.head else fingerTable(idx+1)
-      context.become(serving(fingerTable.updateEntryAtIdx(replacementActorRef, idx), successorEntries, predecessor, successorIdxToFind))
+      val replacementActorRef = if (idx == FingerTable.tableSize-1) state.successorEntries.head else state.fingerTable(idx+1)
+      val newFingerTable = state.fingerTable.updateEntryAtIdx(replacementActorRef, idx)
+      context.become(serving(ServingPeerState(id, state.successorEntries, state.predecessorEntry, newFingerTable), successorIdxToFind))
 
     // HeartbeatMessage
     case HeartbeatCheck => sender ! HeartbeatAck
-    case HeartbeatAckForSuccessor(successorEntry) => log.debug(s"heartbeat succeeded for successor $successorEntry in successor entries list $successorEntries. checked by node $id")
-    case HeartbeatAckForPredecessor => log.debug(s"heartbeat succeeded for predecessor $predecessor. checked by node $id")
+    case HeartbeatAckForSuccessor(successorEntry) => log.debug(s"heartbeat succeeded for successor $successorEntry in successor entries list $state.successorEntries. checked by node $id")
+    case HeartbeatAckForPredecessor => log.debug(s"heartbeat succeeded for predecessor $state.predecessorEntry. checked by node $id")
     case HeartbeatNackForSuccessor(successorEntry) =>
       log.debug(s"heartbeat failed for successor at index ${successorEntry.id} of node $id")
-      val listWithoutItemAtIdx = successorEntries.filter(_.id != successorEntry.id)
+      val listWithoutItemAtIdx = state.successorEntries.filter(_.id != successorEntry.id)
       val newSuccessorEntries = if (listWithoutItemAtIdx.isEmpty) List(peerEntry) else listWithoutItemAtIdx
-      context.become(serving(fingerTable, newSuccessorEntries, predecessor, successorIdxToFind))
+      context.become(serving(ServingPeerState(id, newSuccessorEntries, state.predecessorEntry, state.fingerTable), successorIdxToFind))
     case HeartbeatNackForPredecessor =>
       log.debug(s"heartbeat failed for predecessor of node $id")
-      context.become(serving(fingerTable, successorEntries, Option.empty, successorIdxToFind))
+      context.become(serving(ServingPeerState(id, state.successorEntries, Option.empty, state.fingerTable), successorIdxToFind))
 
     // forward all unknown messages to the application layer
     case msg => context.parent forward msg

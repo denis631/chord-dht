@@ -6,7 +6,7 @@ import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server._
 import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
-import messages.{MessagesJSONFormatting, PeerDied, PeerState, PeerUpdate}
+import messages.{MessagesJSONFormatting, PeerDied, PeerState, PeerStatus, PeerUpdate}
 import spray.json._
 
 import scala.concurrent.duration._
@@ -18,7 +18,7 @@ class WebService extends HttpApp with MessagesJSONFormatting {
 
   class DHTMonitor {
     type NodeId = Long
-    private var liveNodesCurrentStateMap: Map[NodeId, PeerUpdate] = Map.empty
+    private var liveNodesCurrentStateMap: Map[NodeId, PeerStatus] = Map.empty
     private var nodeStateStreamMap: Map[NodeId, SourceQueueWithComplete[Unit]] = Map.empty
 
     val bufferSize = 1000
@@ -31,8 +31,9 @@ class WebService extends HttpApp with MessagesJSONFormatting {
     def nodeStateUpdateEventsToMessageFlow: Flow[PeerState, TextMessage.Strict, NotUsed] =
       Flow[PeerState]
         .map {
-          case status: PeerUpdate => status.toJson.toString
           case status: PeerDied => status.toJson.toString
+          case status: PeerUpdate => status.toJson.toString
+          case status: PeerStatus => status.toJson.toString
         }
         .map(TextMessage(_))
 
@@ -61,13 +62,13 @@ class WebService extends HttpApp with MessagesJSONFormatting {
       }
     }
 
-    def updatePeerStatus(peerState: PeerUpdate): Unit = {
+    def updatePeerStatus(peerState: PeerStatus): Unit = {
       monitorNodeStateMessagesProcessingQueue offer peerState
       stateStreamForNode(peerState.nodeId) offer Unit // heart-beat like mechanism to delay the kill messages
       liveNodesCurrentStateMap += peerState.nodeId -> peerState
     }
 
-    def currentDHTState: List[PeerUpdate] = liveNodesCurrentStateMap.values.toList
+    def currentDHTState: List[PeerStatus] = liveNodesCurrentStateMap.values.toList
   }
 
   val dhtMonitor = new DHTMonitor()
@@ -83,7 +84,7 @@ class WebService extends HttpApp with MessagesJSONFormatting {
     } ~
     pathPrefix("node") {
       post {
-        entity(as[PeerUpdate]) { status =>
+        entity(as[PeerStatus]) { status =>
           dhtMonitor.updatePeerStatus(status)
           complete("ok")
         }
