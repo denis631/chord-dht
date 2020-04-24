@@ -2,6 +2,7 @@ package peer.application
 
 trait DataStoreKey {
   val key: String
+  //TODO: use ChordRingId for both key and node ids!
   def id: Int = key.hashCode() % 16
 }
 

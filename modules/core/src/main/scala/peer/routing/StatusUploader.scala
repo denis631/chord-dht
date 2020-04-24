@@ -8,6 +8,7 @@ import spray.json._
 import messages.PeerStatus
 import peer.application.Types._
 
+//TODO: move this to application layer?
 class StatusUploader(implicit val system: ActorSystem) extends messages.MessagesJSONFormatting {
   def uploadStatus(peerState: ServingPeerState): Unit = {
     val model = PeerStatus(peerState.id, peerState.successorEntries.map(_.id), peerState.predecessorEntry.map(_.id))

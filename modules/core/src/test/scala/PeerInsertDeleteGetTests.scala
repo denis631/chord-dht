@@ -6,38 +6,24 @@ import peer.application.StorageActor._
 import peer.routing.RoutingActor._
 
 import scala.concurrent.duration._
+import peer.application.PersistedDataStoreValue
+import scala.language.postfixOps
 
 trait PeerInsertDeleteGetTests
-  extends fixture.FunSpec
+    extends fixture.FunSpec
     with Matchers
     with fixture.ConfigMapFixture { this: PeerTestSuite =>
 
   describe("hash table peer when joined") {
-    describe("received key, which hashed id is not within its range") {
-      it("should forward it to the successor") { _ =>
-        withPeerAndSuccessor(storageActorCreation)() { (_, peer, _, successor) =>
-          val client = TestProbe()
-          val key = MockKey("key", 13)
-          val msg = Get(key)
-          val internalMsg = _Get(key)
-
-          client.send(peer, msg)
-          successor.expectMsg(internalMsg)
-        }
-      }
-    }
-
     describe("received key, which hashed id is within its range") {
       it("should return the value for this key if stored") { _ =>
         withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 5)
 
-          client.send(peer, Insert(key, Some(-1)))
+          client.send(peer, Put(key, -1))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-
-          client.expectMsg(3 seconds, OperationAck(key))
 
           client.send(peer, Get(key))
           successor.expectMsg(FindSuccessor(key.id))
@@ -62,16 +48,20 @@ trait PeerInsertDeleteGetTests
         withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
           val key = MockKey("key", 5)
+          val value = PersistedDataStoreValue(1, 1)
 
-          client.send(peer, Insert(key, 1))
+          successor.ignoreMsg {
+            case x: InternalPut => true
+            case x: InternalDelete => true
+          }
+
+          client.send(peer, Put(key, value.value))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(3.seconds, OperationAck(key))
 
-          client.send(peer, Remove(key))
+          client.send(peer, Delete(key))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(OperationAck(key))
 
           client.send(peer, Get(key))
           successor.expectMsg(FindSuccessor(key.id))

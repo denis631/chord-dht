@@ -4,7 +4,7 @@ import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import peer.application.StorageActor._
-import peer.application.ReplicationActor._
+import peer.application.SetterActor._
 import peer.routing.RoutingActor._
 import peer.routing.{RoutingActor, StatusUploader}
 import peer.application.Types._
@@ -13,6 +13,7 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 import language.postfixOps
 import scala.util.Success
+import java.beans.PersistenceDelegate
 
 object DistributedHashTablePeer {
   val ringSize = 64
@@ -34,43 +35,26 @@ object StorageActor {
   val minNumberOfSuccessfulReads: Int = Math.ceil((DistributedHashTablePeer.requiredSuccessorListLength + 1) / 2).toInt
   val minNumberOfSuccessfulWrites: Int = Math.ceil((DistributedHashTablePeer.requiredSuccessorListLength + 1) / 2).toInt
 
-  sealed trait Operation {
-    val key: DataStoreKey
-
-    def operationToInternalMapping: InternalOp = {
+  sealed trait Operation { val key: DataStoreKey }
+  sealed trait MutatingOperation extends Operation {
+    def toInternal(replyTo: ActorRef): InternalMutatingOperation = {
       this match {
-        case Get(key) => _Get(key)
-        case Insert(key, value) => _Insert(key, value)
-        case Remove(key) => _Remove(key)
+        case Put(key, value) => InternalPut(key, PersistedDataStoreValue(value, 1), replyTo)
+        case Delete(key) => InternalDelete(key, replyTo)
       }
     }
   }
-  sealed trait InternalOp {
-    val key: DataStoreKey
-
-    def toMutableOp: MutationOp = {
-      this match {
-        case _Insert(key, value) => _Persist(key, PersistedDataStoreValue(value))
-        case _Remove(key) => _Unpersist(key, PersistedDataStoreValue(None))
-      }
-    }
-  }
-  sealed trait MutationOp {
-    val key: DataStoreKey
-  }
-
-  case class _Persist(key: DataStoreKey, value: PersistedDataStoreValue) extends MutationOp
-  case class _Unpersist(key: DataStoreKey, placeholder: PersistedDataStoreValue) extends MutationOp
-
-  case class Insert(key: DataStoreKey, value: Any) extends Operation
-  case class _Insert(key: DataStoreKey, value: Any) extends InternalOp
-
-  case class Remove(key: DataStoreKey) extends Operation
-  case class _Remove(key: DataStoreKey) extends InternalOp
-
   case class Get(key: DataStoreKey) extends Operation
-  case class _Get(key: DataStoreKey) extends InternalOp
-  case class _ValueForKey(key: DataStoreKey) extends InternalOp
+  case class Put(key: DataStoreKey, value: Any) extends MutatingOperation
+  case class Delete(key: DataStoreKey) extends MutatingOperation
+
+  sealed trait InternalOperation
+  case class InternalGet(key: DataStoreKey, replyTo: ActorRef) extends InternalOperation
+  case class InternalGetResponse(value: PersistedDataStoreValue)
+
+  sealed trait InternalMutatingOperation extends InternalOperation
+  case class InternalPut(key: DataStoreKey, value: PersistedDataStoreValue, replyTo: ActorRef) extends InternalMutatingOperation
+  case class InternalDelete(key: DataStoreKey, replyTo: ActorRef) extends InternalMutatingOperation
 
   sealed trait OperationResponse
   case class OperationAck(key: DataStoreKey) extends OperationResponse
@@ -101,83 +85,35 @@ class StorageActor(id: Long,
   implicit val ec: ExecutionContext = context.dispatcher
   implicit val timeout = operationTimeout
 
-  val peerConnectionTimeout: Timeout = Timeout(operationTimeout.duration - 0.25.seconds)
-  val replicationActor: ActorRef = context.actorOf(ReplicationActor.props(w, peerConnectionTimeout), "replicator")
-  val routingActor: ActorRef = context.actorOf(RoutingActor.props(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, statusUploader), "router")
+  val getterSetterTimeout: Timeout = Timeout(operationTimeout.duration - 0.25.seconds)
 
+  val routingActor: ActorRef = context.actorOf(RoutingActor.props(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, statusUploader), "router")
   val stabilizationMessages = List(Heartbeatify, Stabilize, FindMissingSuccessors, FixFingers)
   if (isStabilizing) stabilizationMessages.foreach(context.system.scheduler.schedule(0 seconds, stabilizationDuration, routingActor, _))
 
   override def receive: Receive = serving(Map.empty)
 
   def serving(dataStore: Map[DataStoreKey, PersistedDataStoreValue]): Receive = {
-    case op: RoutingMessage => routingActor forward op
+    case Get(key) =>
+      val getterActor = context.actorOf(GetterActor.props(key, r, sender, routingActor, getterSetterTimeout))
+      getterActor ! peer.application.GetterActor.Get
+    case InternalGet(key, replyTo) => dataStore.get(key).foreach(replyTo ! InternalGetResponse(_))
+    case peer.application.GetterActor.GetResponse(key, value, originalSender) => originalSender ! GetResponse(key, value)
 
-    case op: Operation =>
-      val _ = (routingActor ? FindSuccessor(op.key.id))
-        .mapTo[SuccessorFound]
-        .flatMap { case SuccessorFound(entry) =>
-          log.debug(s"successor ${entry.id} found for key ${op.key}")
-          entry.ref ? op.operationToInternalMapping
-        }
-        .recover { case _ => OperationNack(op.key) }
-        .pipeTo(sender)
-
-    // InternalOp
-    case _Persist(key, value) =>
+    case op: MutatingOperation =>
+      val setterActor = context.actorOf(SetterActor.props(op, w, sender, routingActor, getterSetterTimeout))
+      setterActor ! peer.application.SetterActor.Run
+    case InternalPut(key, value, replyTo) =>
       context.become(serving(dataStore + (key -> value)))
-      sender ! OperationAck(key)
+      replyTo ! OperationAck(key)
+    case InternalDelete(key, replyTo) =>
+      context.become(serving(dataStore - key))
+      replyTo ! OperationAck(key)
 
-    case _Unpersist(key, placeholder) =>
-      context.become(serving(dataStore + (key -> placeholder)))
-      sender ! OperationAck(key)
+    //TODO: add extra information for better logging?
+    case MutationAck(replyTo) => log.debug("mutation operation succeeded")
+    case MutationNack(replyTo) => log.debug("mutation operation failed")
 
-    //TODO: why not return Option[PersistedDataStoreValue]
-    case _ValueForKey(key) => sender ! dataStore.getOrElse(key, PersistedDataStoreValue(None, -1))
-
-    case _Get(key) =>
-      //TODO: implement read-repair?
-      val _ = (routingActor ? GetSuccessorList)
-        .mapTo[SuccessorList]
-        .flatMap { case SuccessorList(successors) =>
-          val peers = self::successors.map(_.ref)
-          if (minNumberOfSuccessfulWrites > peers.length) Future(GetResponse(key, None))
-          else {
-            Future
-              // read from all peers
-              .sequence(peers.map(peer => (peer ? _ValueForKey(key))(peerConnectionTimeout))
-                             .map(_.transform(Success(_))))
-              .map(_
-                .collect { case x: Success[PersistedDataStoreValue] => x.value }
-                .groupBy(_.creationTimestamp)
-                .maxBy(_._1)
-                ._2
-              )
-              .flatMap { latestKeyValuePair =>
-                // flatten if value is Option (no Option[Option[_]] types)
-                val responseVal = Some(latestKeyValuePair.head.value).flatMap {
-                  case x: Option[_] => x
-                  case x => Option(x)
-                }
-
-                // r successful reads are required
-                if (latestKeyValuePair.length < r) Future(GetResponse(key, None))
-                else                               Future(GetResponse(key, responseVal))
-            }
-          }
-        }
-        .pipeTo(sender)
-
-    case op: InternalOp =>
-      val _ = (routingActor ? GetSuccessorList)
-      .mapTo[SuccessorList]
-      .flatMap { case SuccessorList(successors) =>
-        val peers = self::successors.map(_.ref)
-        log.debug(s"successor list before persisting: $peers")
-        if (peers.length < minNumberOfSuccessfulWrites) Future(OperationNack(op.key))
-        //TODO: what about timeout -> will the Nack be forwarded? -> add test
-        else                                            replicationActor ? Replicate(op.toMutableOp, peers)
-      }
-      .pipeTo(sender)
+    case op: RoutingMessage => routingActor forward op
   }
 }
