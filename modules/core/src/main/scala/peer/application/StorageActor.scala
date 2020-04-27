@@ -1,7 +1,6 @@
 package peer.application
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
-import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import peer.application.StorageActor._
 import peer.application.SetterActor._
@@ -9,11 +8,9 @@ import peer.routing.RoutingActor._
 import peer.routing.{RoutingActor, StatusUploader}
 import peer.application.Types._
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import language.postfixOps
-import scala.util.Success
-import java.beans.PersistenceDelegate
 
 object DistributedHashTablePeer {
   val ringSize = 64
@@ -39,13 +36,13 @@ object StorageActor {
   sealed trait MutatingOperation extends Operation {
     def toInternal(replyTo: ActorRef): InternalMutatingOperation = {
       this match {
-        case Put(key, value) => InternalPut(key, PersistedDataStoreValue(value, 1), replyTo)
+        case Put(key, value, _) => InternalPut(key, PersistedDataStoreValue(value, 1), replyTo)
         case Delete(key) => InternalDelete(key, replyTo)
       }
     }
   }
   case class Get(key: DataStoreKey) extends Operation
-  case class Put(key: DataStoreKey, value: Any) extends MutatingOperation
+  case class Put(key: DataStoreKey, value: Any, ttl: Option[FiniteDuration] = None) extends MutatingOperation
   case class Delete(key: DataStoreKey) extends MutatingOperation
 
   sealed trait InternalOperation
@@ -100,9 +97,16 @@ class StorageActor(id: Long,
     case InternalGet(key, replyTo) => dataStore.get(key).foreach(replyTo ! InternalGetResponse(_))
     case peer.application.GetterActor.GetResponse(key, value, originalSender) => originalSender ! GetResponse(key, value)
 
-    case op: MutatingOperation =>
+    case op @ Put(k, v, ttl) =>
       val setterActor = context.actorOf(SetterActor.props(op, w, sender, routingActor, getterSetterTimeout))
       setterActor ! peer.application.SetterActor.Run
+
+      // if ttl is set -> delete the key on expiration
+      ttl.foreach(context.system.scheduler.scheduleOnce(_, self, Delete(k)))
+    case op @ Delete(k) =>
+      val setterActor = context.actorOf(SetterActor.props(op, w, sender, routingActor, getterSetterTimeout))
+      setterActor ! peer.application.SetterActor.Run
+
     case InternalPut(key, value, replyTo) =>
       context.become(serving(dataStore + (key -> value)))
       replyTo ! OperationAck(key)

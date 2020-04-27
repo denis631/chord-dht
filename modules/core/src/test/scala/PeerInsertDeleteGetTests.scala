@@ -44,6 +44,38 @@ trait PeerInsertDeleteGetTests
         }
       }
 
+      it("should remove the inserted key after TTL expiration") { _ =>
+        withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _ , successor) =>
+          val client = TestProbe()
+          val key = MockKey("key", 5)
+          val value = PersistedDataStoreValue(1, 1)
+
+          successor.ignoreMsg {
+            case x: InternalGet => true
+            case x: InternalPut => true
+            case x: InternalDelete => true
+          }
+
+          client.send(peer, Put(key, value.value, Some(1.second)))
+          successor.expectMsg(FindSuccessor(key.id))
+          successor.reply(SuccessorFound(peerEntry))
+
+          client.send(peer, Get(key))
+          successor.expectMsg(FindSuccessor(key.id))
+          successor.reply(SuccessorFound(peerEntry))
+          client.expectMsg(3 seconds, GetResponse(key, Some(value.value)))
+
+          successor.expectMsg(FindSuccessor(key.id))
+          successor.reply(SuccessorFound(peerEntry))
+
+          client.send(peer, Get(key))
+          successor.expectMsg(FindSuccessor(key.id))
+          successor.reply(SuccessorFound(peerEntry))
+          client.expectMsg(GetResponse(key, None))
+
+        }
+      }
+
       it("should be able to remove stored key") { _ =>
         withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
