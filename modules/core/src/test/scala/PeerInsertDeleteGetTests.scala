@@ -19,7 +19,13 @@ trait PeerInsertDeleteGetTests
       it("should return the value for this key if stored") { _ =>
         withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
+          client.ignoreMsg { case EmptyResponse => true }
           val key = MockKey("key", 5)
+
+          successor.ignoreMsg {
+            case x: InternalGet => true
+            case x: InternalPut => true
+          }
 
           client.send(peer, Put(key, -1))
           successor.expectMsg(FindSuccessor(key.id))
@@ -37,6 +43,10 @@ trait PeerInsertDeleteGetTests
           val client = TestProbe()
           val key = MockKey("key", 5)
 
+          successor.ignoreMsg {
+            case x: InternalGet => true
+          }
+
           client.send(peer, Get(key))
           successor.expectMsg(FindSuccessor(key.id))
           successor.reply(SuccessorFound(peerEntry))
@@ -47,6 +57,8 @@ trait PeerInsertDeleteGetTests
       it("should remove the inserted key after TTL expiration") { _ =>
         withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _ , successor) =>
           val client = TestProbe()
+          client.ignoreMsg { case EmptyResponse => true }
+
           val key = MockKey("key", 5)
           val value = PersistedDataStoreValue(1, 1)
 
@@ -79,6 +91,8 @@ trait PeerInsertDeleteGetTests
       it("should be able to remove stored key") { _ =>
         withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _, successor) =>
           val client = TestProbe()
+          client.ignoreMsg { case EmptyResponse => true }
+
           val key = MockKey("key", 5)
           val value = PersistedDataStoreValue(1, 1)
 

@@ -47,15 +47,17 @@ object StorageActor {
 
   sealed trait InternalOperation
   case class InternalGet(key: DataStoreKey, replyTo: ActorRef) extends InternalOperation
-  case class InternalGetResponse(value: PersistedDataStoreValue)
 
   sealed trait InternalMutatingOperation extends InternalOperation
   case class InternalPut(key: DataStoreKey, value: PersistedDataStoreValue, replyTo: ActorRef) extends InternalMutatingOperation
   case class InternalDelete(key: DataStoreKey, replyTo: ActorRef) extends InternalMutatingOperation
 
+  sealed trait InternalOperationResponse
+  case class InternalGetResponse(value: PersistedDataStoreValue) extends InternalOperationResponse
+  case class InternalMutationAck(key: DataStoreKey) extends InternalOperationResponse
+
   sealed trait OperationResponse
-  case class OperationAck(key: DataStoreKey) extends OperationResponse
-  case class OperationNack(key: DataStoreKey) extends OperationResponse
+  case object EmptyResponse extends OperationResponse
   case class GetResponse(key: DataStoreKey, valueOption: Option[Any]) extends OperationResponse
 
   def props(id: Long,
@@ -98,21 +100,26 @@ class StorageActor(id: Long,
     case peer.application.GetterActor.GetResponse(key, value, originalSender) => originalSender ! GetResponse(key, value)
 
     case op @ Put(k, v, ttl) =>
+      sender ! EmptyResponse // sender is not interested in the result of the op -> empty response
+
       val setterActor = context.actorOf(SetterActor.props(op, w, sender, routingActor, getterSetterTimeout))
       setterActor ! peer.application.SetterActor.Run
 
       // if ttl is set -> delete the key on expiration
       ttl.foreach(context.system.scheduler.scheduleOnce(_, self, Delete(k)))
+
     case op @ Delete(k) =>
+      sender ! EmptyResponse // sender is not interested in the result of the op -> empty response
+
       val setterActor = context.actorOf(SetterActor.props(op, w, sender, routingActor, getterSetterTimeout))
       setterActor ! peer.application.SetterActor.Run
 
     case InternalPut(key, value, replyTo) =>
       context.become(serving(dataStore + (key -> value)))
-      replyTo ! OperationAck(key)
+      replyTo ! InternalMutationAck(key)
     case InternalDelete(key, replyTo) =>
       context.become(serving(dataStore - key))
-      replyTo ! OperationAck(key)
+      replyTo ! InternalMutationAck(key)
 
     //TODO: add extra information for better logging?
     case MutationAck(replyTo) => log.debug("mutation operation succeeded")

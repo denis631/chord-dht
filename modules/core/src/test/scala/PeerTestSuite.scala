@@ -22,6 +22,7 @@ class PeerTestSuite
     with FingerTableTests
     with GetterActorTests
     with SetterActorTests
+    with TCPMessageTests
     with BeforeAndAfterAll {
 
   implicit val system: ActorSystem = ActorSystem("DHTSuite")

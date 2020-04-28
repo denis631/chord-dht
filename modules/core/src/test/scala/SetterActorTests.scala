@@ -39,7 +39,7 @@ trait SetterActorTests
         dummySuccessorActor.send(setterActor, SuccessorList(List.empty))
         dummySuccessorActor.expectMsg(InternalPut(dummyKey, value, setterActor))
 
-        setterActor ! OperationAck(dummyKey)
+        setterActor ! InternalMutationAck(dummyKey)
         supervisor.expectMsg(peer.application.SetterActor.MutationAck(client.ref))
       }
     }

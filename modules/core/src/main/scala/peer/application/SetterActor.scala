@@ -61,7 +61,7 @@ class SetterActor(mutatingOperation: MutatingOperation,
   }
 
   def aggregating(countLeft: Int): Actor.Receive = {
-    case OperationAck(_) =>
+    case InternalMutationAck(_) =>
       if (countLeft > 1) {
         context.become(aggregating(countLeft - 1))
       } else {
