@@ -24,14 +24,14 @@ trait SetterActorTests
 
       val dummyKey = MockKey("abc", 13)
       val value = PersistedDataStoreValue(11, 1)
-      val putOperation = Put(dummyKey, value.value)
+      val putOperation = Put(dummyKey, value)
 
       val requiredSuccessfulWrites = 1
       val setterActorProps = SetterActor.props(putOperation, requiredSuccessfulWrites, client.ref, routingActor.ref, Timeout(1.second))
 
       withActorAndSupervisor(setterActorProps) { (setterActor, supervisor) =>
         supervisor.send(setterActor, peer.application.SetterActor.Run)
-        routingActor.expectMsg(FindSuccessor(dummyKey.id))
+        routingActor.expectMsg(FindSuccessor(dummyKey.id, true))
 
         routingActor.send(setterActor, SuccessorFound(PeerEntry(10, dummySuccessorActor.ref)))
         dummySuccessorActor.expectMsg(GetSuccessorList)
@@ -50,14 +50,14 @@ trait SetterActorTests
 
       val dummyKey = MockKey("abc", 13)
       val value = PersistedDataStoreValue(11, 1)
-      val putOperation = Put(dummyKey, value.value)
+      val putOperation = Put(dummyKey, value)
 
       val requiredSuccessfulWrites = 1
       val setterActorProps = SetterActor.props(putOperation, requiredSuccessfulWrites, client.ref, routingActor.ref, Timeout(1.second))
 
       withActorAndSupervisor(setterActorProps) { (setterActor, supervisor) =>
         supervisor.send(setterActor, peer.application.SetterActor.Run)
-        routingActor.expectMsg(FindSuccessor(dummyKey.id))
+        routingActor.expectMsg(FindSuccessor(dummyKey.id, true))
         supervisor.expectMsg(peer.application.SetterActor.MutationNack(client.ref))
       }
     }
@@ -69,14 +69,14 @@ trait SetterActorTests
 
       val dummyKey = MockKey("abc", 13)
       val value = PersistedDataStoreValue(11, 1)
-      val putOperation = Put(dummyKey, value.value)
+      val putOperation = Put(dummyKey, value)
 
       val requiredSuccessfulWrites = 2
       val setterActorProps = SetterActor.props(putOperation, requiredSuccessfulWrites, client.ref, routingActor.ref, Timeout(1.second))
 
       withActorAndSupervisor(setterActorProps) { (setterActor, supervisor) =>
         supervisor.send(setterActor, peer.application.SetterActor.Run)
-        routingActor.expectMsg(FindSuccessor(dummyKey.id))
+        routingActor.expectMsg(FindSuccessor(dummyKey.id, true))
 
         routingActor.send(setterActor, SuccessorFound(PeerEntry(10, dummySuccessorActor.ref)))
         dummySuccessorActor.expectMsg(GetSuccessorList)
@@ -94,14 +94,14 @@ trait SetterActorTests
 
       val dummyKey = MockKey("abc", 13)
       val value = PersistedDataStoreValue(11, 1)
-      val putOperation = Put(dummyKey, value.value)
+      val putOperation = Put(dummyKey, value)
 
       val requiredSuccessfulWrites = 1
       val setterActorProps = SetterActor.props(putOperation, requiredSuccessfulWrites, client.ref, routingActor.ref, Timeout(1.second))
 
       withActorAndSupervisor(setterActorProps) { (setterActor, supervisor) =>
         supervisor.send(setterActor, peer.application.SetterActor.Run)
-        routingActor.expectMsg(FindSuccessor(dummyKey.id))
+        routingActor.expectMsg(FindSuccessor(dummyKey.id, true))
 
         routingActor.send(setterActor, SuccessorFound(PeerEntry(10, dummySuccessorActor.ref)))
         dummySuccessorActor.expectMsg(GetSuccessorList)

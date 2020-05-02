@@ -36,13 +36,13 @@ object StorageActor {
   sealed trait MutatingOperation extends Operation {
     def toInternal(replyTo: ActorRef): InternalMutatingOperation = {
       this match {
-        case Put(key, value, _) => InternalPut(key, PersistedDataStoreValue(value, 1), replyTo)
+        case Put(key, value, _) => InternalPut(key, value, replyTo)
         case Delete(key) => InternalDelete(key, replyTo)
       }
     }
   }
   case class Get(key: DataStoreKey) extends Operation
-  case class Put(key: DataStoreKey, value: Any, ttl: Option[FiniteDuration] = None) extends MutatingOperation
+  case class Put(key: DataStoreKey, value: PersistedDataStoreValue, ttl: Option[FiniteDuration] = None) extends MutatingOperation
   case class Delete(key: DataStoreKey) extends MutatingOperation
 
   sealed trait InternalOperation
@@ -115,15 +115,19 @@ class StorageActor(id: Long,
       setterActor ! peer.application.SetterActor.Run
 
     case InternalPut(key, value, replyTo) =>
-      context.become(serving(dataStore + (key -> value)))
+      val newDataStore = dataStore + (key -> value)
+      log.info(s"new datastore $newDataStore at $self")
+      context.become(serving(newDataStore))
       replyTo ! InternalMutationAck(key)
     case InternalDelete(key, replyTo) =>
-      context.become(serving(dataStore - key))
+      val newDataStore = dataStore - key
+      log.info(s"new datastore $newDataStore at $self")
+      context.become(serving(newDataStore))
       replyTo ! InternalMutationAck(key)
 
     //TODO: add extra information for better logging?
-    case MutationAck(replyTo) => log.debug("mutation operation succeeded")
-    case MutationNack(replyTo) => log.debug("mutation operation failed")
+    case MutationAck(replyTo) => log.info("mutation operation succeeded")
+    case MutationNack(replyTo) => log.info("mutation operation failed")
 
     case op: RoutingMessage => routingActor forward op
   }

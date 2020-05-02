@@ -13,21 +13,25 @@ object Main extends App {
   implicit val system = ActorSystem.create()
   implicit val ec = ExecutionContext.global
 
-  val seed = system.actorOf(StorageActor.props(60, stabilizationDuration = 1000 millis, isSeed = true, statusUploader = Option(new StatusUploader)))
-  //TODO: remove this. create a java instance for every peer
-  val newPeerIds = List(1,8,14,21,32,38,42,48,51)
+  val server = new TCPServer("127.0.0.1", 2551)
+  server.start.foreach(println)
 
-  val peers = newPeerIds
-    .map { id => system.actorOf(StorageActor.props(id, stabilizationDuration = 1000 millis, statusUploader = Option(new StatusUploader))) }
+  // //TODO: read and parse config and find the seed node there
+  // //TODO: remove this. create a java instance for every peer
 
-  //TODO: join the system via a seed which is specified in the config/args
-  peers.foreach { actor => actor ! JoinVia(seed) }
+  // val seed = system.actorOf(StorageActor.props(60, stabilizationDuration = 1000 millis, isSeed = true, statusUploader = Option(new StatusUploader)))
+  // val newPeerIds = List(1,8,14,21,32,38,42,48,51)
 
-  system.scheduler.scheduleOnce(10 seconds) {
-    peers.head ! PoisonPill
+  // val peers = newPeerIds
+  //   .map { id => system.actorOf(StorageActor.props(id, stabilizationDuration = 1000 millis, statusUploader = Option(new StatusUploader))) }
 
-    system.scheduler.scheduleOnce(5 seconds) {
-      peers.last ! PoisonPill
-    }
-  }
+  // peers.foreach { actor => actor ! JoinVia(seed) }
+
+  // system.scheduler.scheduleOnce(10 seconds) {
+  //   peers.head ! PoisonPill
+
+  //   system.scheduler.scheduleOnce(5 seconds) {
+  //     peers.last ! PoisonPill
+  //   }
+  // }
 }

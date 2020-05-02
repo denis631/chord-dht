@@ -3,7 +3,6 @@ package peer.routing
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.util.Timeout
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
@@ -15,18 +14,25 @@ object RoutingActor {
   case class  JoinVia(seed: ActorRef) extends RoutingMessage
   case object FindPredecessor extends RoutingMessage
   case class  PredecessorFound(predecessor: PeerEntry) extends RoutingMessage
-  case class  FindSuccessor(id: PeerId) extends RoutingMessage
+  case class  FindSuccessor(id: PeerId, forKey: Boolean = false) extends RoutingMessage
   case class  SuccessorFound(nearestSuccessor: PeerEntry) extends RoutingMessage
   case object GetSuccessorList extends RoutingMessage
   case class  SuccessorList(successors: List[PeerEntry]) extends RoutingMessage
 
-  sealed trait HelperOperation
+  sealed trait HelperOperation extends RoutingMessage
   case object Heartbeatify extends HelperOperation
   case object Stabilize extends HelperOperation
   case object FindMissingSuccessors extends HelperOperation
   case object FixFingers extends HelperOperation
 
-  def props(id: PeerId, operationTimeout: Timeout = Timeout(5 seconds), stabilizationTimeout: Timeout = Timeout(3 seconds), stabilizationDuration: FiniteDuration = 5 seconds, isSeed: Boolean = false, statusUploader: Option[StatusUploader] = Option.empty): Props =
+  case object UpdateStatus
+
+  def props(id: PeerId,
+            operationTimeout: Timeout = Timeout(5 seconds),
+            stabilizationTimeout: Timeout = Timeout(3 seconds),
+            stabilizationDuration: FiniteDuration = 5 seconds,
+            isSeed: Boolean = false,
+            statusUploader: Option[StatusUploader] = Option.empty): Props =
     Props(new RoutingActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, statusUploader))
 }
 
@@ -55,26 +61,25 @@ class RoutingActor(val id: PeerId,
   val stabilizationActor: ActorRef = context.actorOf(StabilizationActor.props(peerEntry, stabilizationTimeout))
   val fixFingersActor: ActorRef = context.actorOf(FixFingersActor.props(stabilizationTimeout))
 
-  override def receive: Receive = if(isSeed) serving(ServingPeerState(id, List.empty, Option.empty, new FingerTable(id, peerEntry)), 0) else joining()
+  context.system.scheduler.schedule(0.seconds, 3.seconds, self, UpdateStatus)
+
+  override def receive: Receive = if(isSeed) serving(ServingPeerState(id, List.empty, Option.empty, Option.empty), 0) else joining()
 
   def joining(): Receive = {
     case JoinVia(seed: ActorRef) =>
-      log.debug(s"node $id wants to join the network via $seed")
+      log.info(s"node $id wants to join the network via $seed")
       seed ! FindSuccessor(id)
 
     case SuccessorFound(successorEntry) =>
-      log.debug(s"successor found for node $id -> ${successorEntry.id}")
-      context.become(serving(ServingPeerState(id, List(successorEntry), Option.empty, new FingerTable(id, successorEntry)), 0))
+      log.info(s"successor found for node $id -> ${successorEntry.id}")
+      context.become(serving(ServingPeerState(id, List(successorEntry), Option.empty, Some(new FingerTable(peerEntry, successorEntry))), 0))
   }
 
   def serving(state: ServingPeerState, successorIdxToFind: Long): Receive = {
-    case FindPredecessor =>
-      log.debug(s"sending current predecessor $state.predecessorEntry to $sender of node $id")
-      state.predecessorEntry.foreach(sender ! PredecessorFound(_))
+    case FindPredecessor => state.predecessorEntry.foreach(sender ! PredecessorFound(_))
 
     case PredecessorFound(potentialPredecessor)
         if state.predecessorEntry.isEmpty || (PeerIdRange(state.predecessorEntry.get.id, id-1) contains potentialPredecessor.id) =>
-      log.debug(s"predecessor found for node ${potentialPredecessor.id} <- $id")
       context.become(serving(ServingPeerState(id, state.successorEntries, Option(potentialPredecessor), state.fingerTable), successorIdxToFind))
 
     // corner case, when serving node has no successor entries
@@ -83,15 +88,15 @@ class RoutingActor(val id: PeerId,
     //              -> mark yourself as successor for them
     //
     // only in case where sender is not self (can happen when fixing finger table entries)
-    case msg @ FindSuccessor(otherPeerId) if state.successorEntries.isEmpty =>
-      if (sender != self) {
+    case msg @ FindSuccessor(otherPeerId, forKey) if state.successorEntries.isEmpty =>
+      if (sender != self && !forKey) {
         sender ! SuccessorFound(peerEntry)
         self ! SuccessorFound(PeerEntry(otherPeerId, sender))
+      } else {
+        sender ! SuccessorFound(peerEntry)
       }
 
-    case msg @ FindSuccessor(otherPeerId) =>
-      log.debug(s"looking for successor for $otherPeerId at node $id")
-
+    case msg @ FindSuccessor(otherPeerId, _) =>
       val closestSuccessor = state.successorEntries.head.id
       val rangeBetweenPeerAndSuccessor = PeerIdRange(id, closestSuccessor)
       val otherPeerIdIsCloserToPeerThanClosestSuccessor = rangeBetweenPeerAndSuccessor contains otherPeerId
@@ -99,7 +104,8 @@ class RoutingActor(val id: PeerId,
       if (otherPeerIdIsCloserToPeerThanClosestSuccessor) {
         sender ! SuccessorFound(state.successorEntries.head)
       } else {
-        state.fingerTable(otherPeerId).ref forward msg
+        val successor = state.fingerTable.get(otherPeerId)
+        if (successor.id == id) sender ! SuccessorFound(peerEntry) else successor.ref forward msg
       }
 
     case SuccessorFound(nearestSuccessorEntry) =>
@@ -110,9 +116,11 @@ class RoutingActor(val id: PeerId,
           .distinct
           .take(DistributedHashTablePeer.requiredSuccessorListLength)
 
-      log.debug(s"successor found for node $id -> ${nearestSuccessorEntry.id}")
-      log.debug(s"new successor list for node $id is now: $newSuccessorList")
-      context.become(serving(ServingPeerState(id, newSuccessorList, state.predecessorEntry, state.fingerTable.updateHeadEntry(newSuccessorList.head)),
+      //TODO: add test for this
+      // can it happen that new successor list is empty?
+      val newFingerTable = if (state.fingerTable.isEmpty) Some(new FingerTable(peerEntry, newSuccessorList.head)) else state.fingerTable.map(_.updateHeadEntry(newSuccessorList.head))
+
+      context.become(serving(ServingPeerState(id, newSuccessorList, state.predecessorEntry, newFingerTable),
                              successorIdxToFind))
 
     case GetSuccessorList => sender ! SuccessorList(state.successorEntries)
@@ -122,16 +130,17 @@ class RoutingActor(val id: PeerId,
       state.predecessorEntry.map(_.ref).foreach(heartbeatActor ! HeartbeatRunForPredecessor(_))
       state.successorEntries.foreach(heartbeatActor ! HeartbeatRunForSuccessor(_))
 
-    case Stabilize => stabilizationActor ! StabilizationRun(state.successorEntries.head)
+    case Stabilize => state.successorEntries.headOption.foreach(stabilizationActor ! StabilizationRun(_))
 
-    case FixFingers =>
+    case FixFingers if state.fingerTable.isDefined =>
       state.fingerTable
+        .get
         .idPlusOffsetList
         .zipWithIndex
         .map { case (successorId, idx) => FindSuccessorForFinger(successorId, idx) }
         .foreach(fixFingersActor ! _)
 
-    case FindMissingSuccessors if state.successorEntries.length < DistributedHashTablePeer.requiredSuccessorListLength =>
+    case FindMissingSuccessors if state.successorEntries.length < DistributedHashTablePeer.requiredSuccessorListLength && state.successorEntries.length > 0 =>
       val peerIdToLookFor = (successorIdxToFind match {
                                case 0 => peerEntry.id + 1
                                case idx if state.successorEntries.length >= idx => state.successorEntries(idx.toInt - 1).id + 1
@@ -144,30 +153,30 @@ class RoutingActor(val id: PeerId,
 
     // FixFingersMessage
     case SuccessorForFingerFound(successorEntry: PeerEntry, idx: Int) =>
-      val newFingerTable = state.fingerTable.updateEntryAtIdx(successorEntry, idx)
+      val newFingerTable = if (state.fingerTable.isDefined) state.fingerTable.map(_.updateEntryAtIdx(successorEntry, idx)) else Some(new FingerTable(peerEntry, successorEntry))
       val newState = ServingPeerState(id, state.successorEntries, state.predecessorEntry, newFingerTable)
-
-      statusUploader.foreach(_.uploadStatus(newState))
       context.become(serving(newState, successorIdxToFind))
     case SuccessorForFingerNotFound(idx: Int) =>
-      val replacementActorRef = if (idx == FingerTable.tableSize-1) state.successorEntries.head else state.fingerTable(idx+1)
-      val newFingerTable = state.fingerTable.updateEntryAtIdx(replacementActorRef, idx)
+      val replacementActorRef = if (idx == FingerTable.tableSize-1) state.successorEntries.head else state.fingerTable.get(idx+1)
+      val newFingerTable = state.fingerTable.map(_.updateEntryAtIdx(replacementActorRef, idx))
       context.become(serving(ServingPeerState(id, state.successorEntries, state.predecessorEntry, newFingerTable), successorIdxToFind))
 
     // HeartbeatMessage
     case HeartbeatCheck => sender ! HeartbeatAck
-    case HeartbeatAckForSuccessor(successorEntry) => log.debug(s"heartbeat succeeded for successor $successorEntry in successor entries list $state.successorEntries. checked by node $id")
-    case HeartbeatAckForPredecessor => log.debug(s"heartbeat succeeded for predecessor $state.predecessorEntry. checked by node $id")
+    case HeartbeatAckForSuccessor(successorEntry) => ()
+    case HeartbeatAckForPredecessor => ()
     case HeartbeatNackForSuccessor(successorEntry) =>
-      log.debug(s"heartbeat failed for successor at index ${successorEntry.id} of node $id")
       val listWithoutItemAtIdx = state.successorEntries.filter(_.id != successorEntry.id)
-      val newSuccessorEntries = if (listWithoutItemAtIdx.isEmpty) List(peerEntry) else listWithoutItemAtIdx
-      context.become(serving(ServingPeerState(id, newSuccessorEntries, state.predecessorEntry, state.fingerTable), successorIdxToFind))
+      context.become(serving(ServingPeerState(id, listWithoutItemAtIdx, state.predecessorEntry, state.fingerTable), successorIdxToFind))
     case HeartbeatNackForPredecessor =>
-      log.debug(s"heartbeat failed for predecessor of node $id")
       context.become(serving(ServingPeerState(id, state.successorEntries, Option.empty, state.fingerTable), successorIdxToFind))
 
-    // forward all unknown messages to the application layer
+    case UpdateStatus => statusUploader.foreach(_.uploadStatus(state))
+
+    // do not process any other routing messages
+    case _: RoutingMessage => ()
+
+    // forward all non-routing messages to the parent (i.e. application layer -> storage actor)
     case msg => context.parent forward msg
   }
 }

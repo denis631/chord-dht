@@ -12,7 +12,7 @@ import scala.language.postfixOps
 trait PeerInsertDeleteGetTests
     extends fixture.FunSpec
     with Matchers
-    with fixture.ConfigMapFixture { this: PeerTestSuite =>
+    with fixture.ConfigMapFixture {  this: PeerTestSuite =>
 
   describe("hash table peer when joined") {
     describe("received key, which hashed id is within its range") {
@@ -21,20 +21,21 @@ trait PeerInsertDeleteGetTests
           val client = TestProbe()
           client.ignoreMsg { case EmptyResponse => true }
           val key = MockKey("key", 5)
+          val value = PersistedDataStoreValue(-1, 1)
 
           successor.ignoreMsg {
             case x: InternalGet => true
             case x: InternalPut => true
           }
 
-          client.send(peer, Put(key, -1))
-          successor.expectMsg(FindSuccessor(key.id))
+          client.send(peer, Put(key, value))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
 
           client.send(peer, Get(key))
-          successor.expectMsg(FindSuccessor(key.id))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(3 seconds, GetResponse(key, Some(-1)))
+          client.expectMsg(3 seconds, GetResponse(key, Some(value.value)))
         }
       }
 
@@ -48,7 +49,7 @@ trait PeerInsertDeleteGetTests
           }
 
           client.send(peer, Get(key))
-          successor.expectMsg(FindSuccessor(key.id))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
           client.expectMsg(GetResponse(key, None))
         }
@@ -61,6 +62,7 @@ trait PeerInsertDeleteGetTests
 
           val key = MockKey("key", 5)
           val value = PersistedDataStoreValue(1, 1)
+          val ttl = 1.second
 
           successor.ignoreMsg {
             case x: InternalGet => true
@@ -68,23 +70,24 @@ trait PeerInsertDeleteGetTests
             case x: InternalDelete => true
           }
 
-          client.send(peer, Put(key, value.value, Some(1.second)))
-          successor.expectMsg(FindSuccessor(key.id))
+          client.send(peer, Put(key, value, Some(ttl)))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
 
           client.send(peer, Get(key))
-          successor.expectMsg(FindSuccessor(key.id))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(3 seconds, GetResponse(key, Some(value.value)))
+          client.expectMsg(GetResponse(key, Some(value.value)))
 
-          successor.expectMsg(FindSuccessor(key.id))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
+
+          Thread.sleep((ttl + 0.5.seconds).toMillis)
 
           client.send(peer, Get(key))
-          successor.expectMsg(FindSuccessor(key.id))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
           client.expectMsg(GetResponse(key, None))
-
         }
       }
 
@@ -101,16 +104,16 @@ trait PeerInsertDeleteGetTests
             case x: InternalDelete => true
           }
 
-          client.send(peer, Put(key, value.value))
-          successor.expectMsg(FindSuccessor(key.id))
+          client.send(peer, Put(key, value))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
 
           client.send(peer, Delete(key))
-          successor.expectMsg(FindSuccessor(key.id))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
 
           client.send(peer, Get(key))
-          successor.expectMsg(FindSuccessor(key.id))
+          successor.expectMsg(FindSuccessor(key.id, true))
           successor.reply(SuccessorFound(peerEntry))
           client.expectMsg(GetResponse(key, None))
         }

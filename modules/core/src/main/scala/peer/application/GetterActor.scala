@@ -1,10 +1,8 @@
 package peer.application
 
-import peer.application.DataStoreKey
 import scala.concurrent.ExecutionContext
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import peer.routing.RoutingActor.{SuccessorList, GetSuccessorList, FindSuccessor, SuccessorFound}
-import peer.application.PersistedDataStoreValue
 import peer.application.StorageActor._
 import akka.util.Timeout
 import scala.concurrent.duration._
@@ -40,14 +38,19 @@ class GetterActor(key: DataStoreKey,
 
   context.system.scheduler.scheduleOnce(abortTimeout.duration, self, AbortTimeout)
 
+  def abortHandling(): Unit = {
+    context.parent ! GetResponse(key, Option.empty, replyTo)
+    context.stop(self)
+  }
+
   override def receive: Actor.Receive = retrievingPeers()
 
   def retrievingPeers(): Actor.Receive = {
-    case Get => routingActor ! FindSuccessor(key.id)
+    case Get => routingActor ! FindSuccessor(key.id, true)
     case SuccessorFound(entry) =>
       context.become(retrievingSuccessorsForEntry(entry))
       entry.ref ! GetSuccessorList
-    case AbortTimeout => context.parent ! GetResponse(key, Option.empty, replyTo)
+    case AbortTimeout => abortHandling()
   }
 
   def retrievingSuccessorsForEntry(successorEntry: PeerEntry): Actor.Receive = {
@@ -55,12 +58,12 @@ class GetterActor(key: DataStoreKey,
       val totalPeers = successorEntry.ref::(successors.map(_.ref))
 
       if (totalPeers.length < r) {
-        self ! AbortTimeout
+        abortHandling()
       } else {
         context.become(aggregating(r, Map.empty))
         totalPeers.foreach(_ ! InternalGet(key, self))
       }
-    case AbortTimeout => context.parent ! GetResponse(key, Option.empty, replyTo)
+    case AbortTimeout => abortHandling()
   }
 
   def aggregating(countLeft: Int, valueCounter: Map[PersistedDataStoreValue, Int]): Actor.Receive = {
@@ -73,6 +76,6 @@ class GetterActor(key: DataStoreKey,
         val valueThatOccuredTheMost = newValueCounter.maxBy(_._2)._1.value
         context.parent ! GetResponse(key, Some(valueThatOccuredTheMost), replyTo)
       }
-    case AbortTimeout => context.parent ! GetResponse(key, Option.empty, replyTo)
+    case AbortTimeout => abortHandling()
   }
 }

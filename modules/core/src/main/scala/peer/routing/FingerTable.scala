@@ -8,39 +8,32 @@ object FingerTable {
   def tableSize: Int = log2(DistributedHashTablePeer.ringSize).toInt
 }
 
-class FingerTable(peerId: PeerId, val table: List[PeerEntry]) {
-  def this(peerId: PeerId, fillPeerEntry: PeerEntry) {
-    this(peerId, List.fill(FingerTable.tableSize)(fillPeerEntry))
+class FingerTable(peerEntry: PeerEntry, val table: List[PeerEntry]) {
+  def this(peerEntry: PeerEntry, fillPeerEntry: PeerEntry) {
+    this(peerEntry, List.fill(FingerTable.tableSize)(fillPeerEntry))
   }
 
   def idPlusOffsetList: List[PeerId] = List // 32, 16, 8, 4, 2, 1 offset + peerId
     .fill(FingerTable.tableSize-1)(1)
     .foldLeft[List[PeerId]](List(1)) { (acc, _) => (acc.head * 2) :: acc }
-    .map(_ + peerId)
+    .map(offset => (peerEntry.id + offset) % DistributedHashTablePeer.ringSize)
 
   def updateHeadEntry(newPeerEntry: PeerEntry): FingerTable = updateEntryAtIdx(newPeerEntry, FingerTable.tableSize-1)
 
-  def updateEntryAtIdx(newPeerEntry: PeerEntry, idx: Int): FingerTable =
-    if (table.forall(_.id == peerId)) {
-      new FingerTable(peerId, newPeerEntry)
-    } else {
-      new FingerTable(peerId, table.take(idx) ++ List(newPeerEntry) ++ table.drop(idx+1))
-    }
+  def updateEntryAtIdx(newPeerEntry: PeerEntry, idx: Int): FingerTable = new FingerTable(peerEntry, table.take(idx) ++ List(newPeerEntry) ++ table.drop(idx+1))
 
-  def nearestActorForId(id: PeerId): PeerEntry = {
-    val relativeId = if (id < peerId) id + DistributedHashTablePeer.ringSize else id
+  def nearestPeerEntryForId(id: PeerId): PeerEntry = {
+    val range = PeerIdRange(peerEntry.id, id)
 
-    val possiblePeers = table
-      .zip(idPlusOffsetList)
-      .filter { case (_, entryId) => peerId < entryId && entryId < relativeId }
-      .map(_._1)
-
-    if (possiblePeers.isEmpty) table.head else possiblePeers.head
+    table
+      .filter(range contains _.id)
+      .headOption
+      .getOrElse(peerEntry)
   }
 
-  def apply(id: PeerId): PeerEntry = nearestActorForId(id)
+  def apply(id: PeerId): PeerEntry = nearestPeerEntryForId(id)
 
   override def toString: String =
-    s"finger table for node $peerId: \n" +
+    s"finger table for node $peerEntry.id: \n" +
       idPlusOffsetList.zip(table.map(_.id)).map { case (id, successorId) => s"$id -> $successorId" }.mkString("\n")
 }

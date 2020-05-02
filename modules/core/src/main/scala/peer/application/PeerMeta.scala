@@ -9,7 +9,7 @@ object Types {
   case class ServingPeerState(val id: PeerId,
                               val successorEntries: List[PeerEntry],
                               val predecessorEntry: Option[PeerEntry],
-                              val fingerTable: FingerTable)
+                              val fingerTable: Option[FingerTable])
 
   case class PeerEntry(id: PeerId, ref: ActorRef) {
     override def toString: String = s"Peer: id: $id"

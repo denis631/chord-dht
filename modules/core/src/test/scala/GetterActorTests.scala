@@ -29,7 +29,7 @@ trait GetterActorTests
 
       withActorAndSupervisor(getterActorProps) { (getterActor, supervisor) =>
         supervisor.send(getterActor, peer.application.GetterActor.Get)
-        routingActor.expectMsg(FindSuccessor(dummyKey.id))
+        routingActor.expectMsg(FindSuccessor(dummyKey.id, true))
 
         routingActor.send(getterActor, SuccessorFound(PeerEntry(10, dummySuccessorActor.ref)))
         dummySuccessorActor.expectMsg(GetSuccessorList)
@@ -52,7 +52,7 @@ trait GetterActorTests
 
       withActorAndSupervisor(getterActorProps) { (getterActor, supervisor) =>
         supervisor.send(getterActor, peer.application.GetterActor.Get)
-        routingActor.expectMsg(FindSuccessor(dummyKey.id))
+        routingActor.expectMsg(FindSuccessor(dummyKey.id, true))
 
         supervisor.expectMsg(peer.application.GetterActor.GetResponse(dummyKey, None, client.ref))
       }
@@ -69,7 +69,7 @@ trait GetterActorTests
 
       withActorAndSupervisor(getterActorProps) { (getterActor, supervisor) =>
         supervisor.send(getterActor, peer.application.GetterActor.Get)
-        routingActor.expectMsg(FindSuccessor(dummyKey.id))
+        routingActor.expectMsg(FindSuccessor(dummyKey.id, true))
 
         routingActor.send(getterActor, SuccessorFound(PeerEntry(10, dummySuccessorActor.ref)))
         dummySuccessorActor.expectMsg(GetSuccessorList)
@@ -90,7 +90,7 @@ trait GetterActorTests
 
       withActorAndSupervisor(getterActorProps) { (getterActor, supervisor) =>
         supervisor.send(getterActor, peer.application.GetterActor.Get)
-        routingActor.expectMsg(FindSuccessor(dummyKey.id))
+        routingActor.expectMsg(FindSuccessor(dummyKey.id, true))
 
         routingActor.send(getterActor, SuccessorFound(PeerEntry(10, dummySuccessorActor.ref)))
         dummySuccessorActor.expectMsg(GetSuccessorList)

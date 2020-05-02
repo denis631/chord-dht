@@ -33,17 +33,21 @@ class SetterActor(mutatingOperation: MutatingOperation,
                   abortTimeout: Timeout) extends Actor {
   implicit val ec: ExecutionContext = context.dispatcher
 
-  //TODO: what about the PoisonPill
   context.system.scheduler.scheduleOnce(abortTimeout.duration, self, AbortTimeout)
+
+  def abortHandling(): Unit = {
+    context.parent ! MutationNack(replyTo)
+    context.stop(self)
+  }
 
   override def receive: Actor.Receive = retrievingPeers()
 
   def retrievingPeers(): Actor.Receive = {
-    case Run => routingActor ! FindSuccessor(mutatingOperation.key.id)
+    case Run => routingActor ! FindSuccessor(mutatingOperation.key.id, true)
     case SuccessorFound(entry) =>
       context.become(retrievingSuccessorsForEntry(entry))
       entry.ref ! GetSuccessorList
-    case AbortTimeout => context.parent ! MutationNack(replyTo)
+    case AbortTimeout => abortHandling()
   }
 
   def retrievingSuccessorsForEntry(successorEntry: PeerEntry): Actor.Receive = {
@@ -51,13 +55,13 @@ class SetterActor(mutatingOperation: MutatingOperation,
       val totalPeers = successorEntry.ref::(successors.map(_.ref))
 
       if (totalPeers.length < w) {
-        self ! AbortTimeout
+        abortHandling()
       } else {
         context.become(aggregating(w))
-        val value = mutatingOperation.toInternal(self)
-        totalPeers.foreach(_ ! value)
+        val internalMutationOperation = mutatingOperation.toInternal(self)
+        totalPeers.foreach(_ ! internalMutationOperation)
       }
-    case AbortTimeout => context.parent ! MutationNack(replyTo)
+    case AbortTimeout => abortHandling()
   }
 
   def aggregating(countLeft: Int): Actor.Receive = {
@@ -66,7 +70,8 @@ class SetterActor(mutatingOperation: MutatingOperation,
         context.become(aggregating(countLeft - 1))
       } else {
         context.parent ! MutationAck(replyTo)
+        context.stop(self)
       }
-    case AbortTimeout => context.parent ! MutationNack(replyTo)
+    case AbortTimeout => abortHandling()
   }
 }
