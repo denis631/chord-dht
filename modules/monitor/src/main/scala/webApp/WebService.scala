@@ -4,7 +4,7 @@ import akka.NotUsed
 import akka.actor.ActorSystem
 import akka.http.scaladsl.model.ws.TextMessage
 import akka.http.scaladsl.server._
-import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
+import akka.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete, BroadcastHub, Keep}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
 import messages.{MessagesJSONFormatting, PeerDied, PeerState, PeerStatus, PeerUpdate}
 import spray.json._
@@ -21,12 +21,15 @@ class WebService extends HttpApp with MessagesJSONFormatting {
     private var liveNodesCurrentStateMap: Map[NodeId, PeerStatus] = Map.empty
     private var nodeStateStreamMap: Map[NodeId, SourceQueueWithComplete[Unit]] = Map.empty
 
-    val bufferSize = 1000
+    val bufferSize = 128
 
     val (monitorNodeStateMessagesProcessingQueue, monitorStateSource) = Source
       .queue[PeerState](bufferSize, OverflowStrategy.dropHead)
       .via(nodeStateUpdateEventsToMessageFlow)
-      .preMaterialize()
+      .toMat(BroadcastHub.sink)(Keep.both)
+      .run()
+
+    monitorStateSource.to(Sink.ignore).run
 
     def nodeStateUpdateEventsToMessageFlow: Flow[PeerState, TextMessage.Strict, NotUsed] =
       Flow[PeerState]

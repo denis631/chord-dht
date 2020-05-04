@@ -61,7 +61,7 @@ class RoutingActor(val id: PeerId,
   val stabilizationActor: ActorRef = context.actorOf(StabilizationActor.props(peerEntry, stabilizationTimeout))
   val fixFingersActor: ActorRef = context.actorOf(FixFingersActor.props(stabilizationTimeout))
 
-  context.system.scheduler.schedule(0.seconds, 3.seconds, self, UpdateStatus)
+  context.system.scheduler.schedule(0.seconds, stabilizationDuration, self, UpdateStatus)
 
   override def receive: Receive = if(isSeed) serving(ServingPeerState(id, List.empty, Option.empty, Option.empty), 0) else joining()
 

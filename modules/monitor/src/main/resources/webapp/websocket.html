@@ -109,10 +109,15 @@
 
              // Update successor links for active nodes only
              if (active) {
+                 var successorId = json.nodeId
+                 if (json.successorId != null) {
+                     successorId = json.successorId
+                 }
+
                  // Generate successor links for the current node
                  var root = {parent: null, radius: 0};
                  var source = {value: json.nodeId, radius: radius, parent: root};
-                 var target = {value: json.successorId, radius: radius, parent: root};
+                 var target = {value: successorId, radius: radius, parent: root};
                  root.children = [source, target];
                  hierarchy(root);
                  var splines = bundle([

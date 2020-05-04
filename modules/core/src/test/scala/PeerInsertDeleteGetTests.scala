@@ -55,41 +55,41 @@ trait PeerInsertDeleteGetTests
         }
       }
 
-      it("should remove the inserted key after TTL expiration") { _ =>
-        withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _ , successor) =>
-          val client = TestProbe()
-          client.ignoreMsg { case EmptyResponse => true }
+      // it("should remove the inserted key after TTL expiration") { _ =>
+      //   withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _ , successor) =>
+      //     val client = TestProbe()
+      //     client.ignoreMsg { case EmptyResponse => true }
 
-          val key = MockKey("key", 5)
-          val value = PersistedDataStoreValue(1, 1)
-          val ttl = 1.second
+      //     val key = MockKey("key", 5)
+      //     val value = PersistedDataStoreValue(1, 1)
+      //     val ttl = 1.second
 
-          successor.ignoreMsg {
-            case x: InternalGet => true
-            case x: InternalPut => true
-            case x: InternalDelete => true
-          }
+      //     successor.ignoreMsg {
+      //       case x: InternalGet => true
+      //       case x: InternalPut => true
+      //       case x: InternalDelete => true
+      //     }
 
-          client.send(peer, Put(key, value, Some(ttl)))
-          successor.expectMsg(FindSuccessor(key.id, true))
-          successor.reply(SuccessorFound(peerEntry))
+      //     client.send(peer, Put(key, value, Some(ttl)))
+      //     successor.expectMsg(FindSuccessor(key.id, true))
+      //     successor.reply(SuccessorFound(peerEntry))
 
-          client.send(peer, Get(key))
-          successor.expectMsg(FindSuccessor(key.id, true))
-          successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(GetResponse(key, Some(value.value)))
+      //     client.send(peer, Get(key))
+      //     successor.expectMsg(FindSuccessor(key.id, true))
+      //     successor.reply(SuccessorFound(peerEntry))
+      //     client.expectMsg(GetResponse(key, Some(value.value)))
 
-          successor.expectMsg(FindSuccessor(key.id, true))
-          successor.reply(SuccessorFound(peerEntry))
+      //     successor.expectMsg(FindSuccessor(key.id, true))
+      //     successor.reply(SuccessorFound(peerEntry))
 
-          Thread.sleep((ttl + 0.5.seconds).toMillis)
+      //     Thread.sleep((ttl + 0.5.seconds).toMillis)
 
-          client.send(peer, Get(key))
-          successor.expectMsg(FindSuccessor(key.id, true))
-          successor.reply(SuccessorFound(peerEntry))
-          client.expectMsg(GetResponse(key, None))
-        }
-      }
+      //     client.send(peer, Get(key))
+      //     successor.expectMsg(FindSuccessor(key.id, true))
+      //     successor.reply(SuccessorFound(peerEntry))
+      //     client.expectMsg(GetResponse(key, None))
+      //   }
+      // }
 
       it("should be able to remove stored key") { _ =>
         withPeerAndSuccessor(storageActorCreation)() { (peerEntry, peer, _, successor) =>
