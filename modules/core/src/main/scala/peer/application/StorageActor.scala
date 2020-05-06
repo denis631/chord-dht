@@ -32,7 +32,16 @@ object StorageActor {
   val minNumberOfSuccessfulReads: Int = Math.ceil((DistributedHashTablePeer.requiredSuccessorListLength + 1) / 2).toInt
   val minNumberOfSuccessfulWrites: Int = Math.ceil((DistributedHashTablePeer.requiredSuccessorListLength + 1) / 2).toInt
 
-  sealed trait Operation { val key: DataStoreKey }
+  sealed trait Operation {
+    val key: DataStoreKey
+    def defaultResponse: OperationResponse = {
+      this match {
+        case Get(key) => GetResponse(key, None)
+        case _: Put => EmptyResponse
+        case _: Delete => EmptyResponse
+      }
+    }
+  }
   sealed trait MutatingOperation extends Operation {
     def toInternal(replyTo: ActorRef): InternalMutatingOperation = {
       this match {
@@ -63,19 +72,27 @@ object StorageActor {
   def props(id: Long,
             operationTimeout: Timeout = Timeout(5 seconds),
             stabilizationTimeout: Timeout = Timeout(3 seconds),
-            stabilizationDuration: FiniteDuration = 5 seconds,
+            stabilizationInterval: FiniteDuration = 5 seconds,
             isSeed: Boolean = false,
             isStabilizing: Boolean = true,
             statusUploader: Option[StatusUploader] = Option.empty,
             r: Int = minNumberOfSuccessfulReads,
             w: Int = minNumberOfSuccessfulWrites): Props =
-    Props(new StorageActor(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, isStabilizing, statusUploader, r, w))
+    Props(new StorageActor(id,
+                           operationTimeout,
+                           stabilizationTimeout,
+                           stabilizationInterval,
+                           isSeed,
+                           isStabilizing,
+                           statusUploader,
+                           r,
+                           w))
 }
 
 class StorageActor(id: Long,
                    operationTimeout: Timeout,
                    stabilizationTimeout: Timeout,
-                   stabilizationDuration: FiniteDuration,
+                   stabilizationInterval: FiniteDuration,
                    isSeed: Boolean,
                    isStabilizing: Boolean,
                    statusUploader: Option[StatusUploader],
@@ -86,9 +103,9 @@ class StorageActor(id: Long,
 
   val getterSetterTimeout: Timeout = Timeout(operationTimeout.duration - 0.25.seconds)
 
-  val routingActor: ActorRef = context.actorOf(RoutingActor.props(id, operationTimeout, stabilizationTimeout, stabilizationDuration, isSeed, statusUploader), "router")
+  val routingActor: ActorRef = context.actorOf(RoutingActor.props(id, operationTimeout, stabilizationTimeout, stabilizationInterval, isSeed, statusUploader), "router")
   val stabilizationMessages = List(Heartbeatify, Stabilize, FindMissingSuccessors, FixFingers)
-  if (isStabilizing) stabilizationMessages.foreach(context.system.scheduler.schedule(0 seconds, stabilizationDuration, routingActor, _))
+  if (isStabilizing) stabilizationMessages.foreach(context.system.scheduler.schedule(0 seconds, stabilizationInterval, routingActor, _))
 
   override def receive: Receive = serving(Map.empty)
 

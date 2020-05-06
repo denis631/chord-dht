@@ -40,6 +40,7 @@ lazy val core = project.in(file("modules/core"))
   .settings(libraryDependencies ++= commonDependencies)
   .settings(libraryDependencies ++= Seq(
     "com.typesafe.akka" %% "akka-actor"   % akkaVersion,
+    "com.typesafe.akka" %% "akka-remote"  % akkaVersion,
     "com.typesafe.akka" %% "akka-testkit" % akkaVersion % Test
   ))
   .dependsOn(messages)

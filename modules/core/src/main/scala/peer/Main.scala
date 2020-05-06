@@ -1,37 +1,35 @@
 package peer
 
-import akka.actor.{ActorSystem, PoisonPill}
-import peer.routing.RoutingActor.JoinVia
-import peer.routing.StatusUploader
-import peer.application.StorageActor
-
+import scala.collection.mutable
 import scala.concurrent.ExecutionContext
-import scala.concurrent.duration._
-import scala.language.postfixOps
 
 object Main extends App {
-  implicit val system = ActorSystem.create()
+  def readConfigIni(fileName: String): Map[String, String] = {
+    def getSection(s: String): Option[String] =
+      if (s.head == '[' && s.last == ']') {
+        return Some(s.drop(1).take(s.length() - 2))
+      } else {
+        return None
+      }
+
+    scala.io.Source.fromFile(fileName)
+      .getLines
+      .toList
+      .filter(_.trim.size > 0)
+      .dropWhile(getSection(_).map(_ != "dht").getOrElse(true)) // drop other sections
+      .drop(1) // drop [dht]
+      .takeWhile(getSection(_).isEmpty) // take while not other section is met
+      .foldLeft(new mutable.HashMap[String, String]){ (acc, s) =>
+        val abs = s.split('=')
+        acc += abs.head.trim() -> abs.last.trim()
+      }
+      .toMap
+  }
+
   implicit val ec = ExecutionContext.global
 
-  val server = new TCPServer("127.0.0.1", 2551)
+  val configPath = args.last
+  val config = readConfigIni(configPath)
+  val server = new TCPServer(config)
   server.start.foreach(println)
-
-  // //TODO: read and parse config and find the seed node there
-  // //TODO: remove this. create a java instance for every peer
-
-  // val seed = system.actorOf(StorageActor.props(60, stabilizationDuration = 1000 millis, isSeed = true, statusUploader = Option(new StatusUploader)))
-  // val newPeerIds = List(1,8,14,21,32,38,42,48,51)
-
-  // val peers = newPeerIds
-  //   .map { id => system.actorOf(StorageActor.props(id, stabilizationDuration = 1000 millis, statusUploader = Option(new StatusUploader))) }
-
-  // peers.foreach { actor => actor ! JoinVia(seed) }
-
-  // system.scheduler.scheduleOnce(10 seconds) {
-  //   peers.head ! PoisonPill
-
-  //   system.scheduler.scheduleOnce(5 seconds) {
-  //     peers.last ! PoisonPill
-  //   }
-  // }
 }

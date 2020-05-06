@@ -19,11 +19,15 @@ import peer.routing.StatusUploader
 import akka.util.Timeout
 import akka.stream.ActorMaterializer
 import akka.stream.Supervision
-import akka.stream.ActorMaterializerSettings
 import peer.application.StorageActor.OperationResponse
 import java.nio.ByteBuffer
 import peer.application.StorageActor.Operation
 import peer.application.PersistedDataStoreValue
+import peer.routing.RoutingActor.JoinVia
+import akka.stream.ActorAttributes
+import com.typesafe.config.ConfigFactory
+import scala.concurrent.ExecutionContext
+import akka.pattern.ask
 
 object TCPMessage {
   val sizeFieldIndex = 0
@@ -98,27 +102,70 @@ object TCPMessage {
   }
 }
 
-final case class TCPServer(val host: String, val port: Int)(implicit val system: ActorSystem) {
-  val connections: Source[IncomingConnection, Future[ServerBinding]] = Tcp().bind(host, port)
-  val operationTimeout = Timeout(5.seconds)
-  val storageActor = system.actorOf(StorageActor.props(60, operationTimeout = operationTimeout, stabilizationDuration = 1000.millis, isSeed = true, statusUploader = Option(new StatusUploader)))
+final case class TCPServer(val configIni: Map[String, String])(implicit val ec: ExecutionContext) {
+  def configContent(port: Int) = s"""
+|akka {
+|  actor {
+|    warn-about-java-serializer-usage = false
+|    provider = remote
+|  }
+|
+|  remote {
+|    netty {
+|      enabled-transports = ["akka.remote.netty.tcp"]
+|      tcp {
+|        port = $port
+|        hostname = "127.0.0.1"
+|      }
+|    }
+|  }
+|
+|  loggers = ["akka.event.slf4j.Slf4jLogger"]
+|  loglevel = "DEBUG"
+|
+|  stdout-loglevel = "DEBUG"
+|  logging-filter = "akka.event.slf4j.Slf4jLoggingFilter"
+|}""".stripMargin
 
-  implicit val materializer = ActorMaterializer(
-    ActorMaterializerSettings(system).withSupervisionStrategy(Supervision.resumingDecider))
-
+  val Array(host, port) = configIni.get("api_address").map(_.split(':').take(2)).get
+  val isSeed = configIni.get("bootstrapper").isEmpty
+  val operationTimeout = Timeout(5.seconds) // TODO: add to config?
   implicit val timeout = operationTimeout
 
-  def start = {
-    //TODO: how to send the DHTFailure message on timeout
-    // val askFlow = Flow[Operation]. ask[OperationResponse](storageActor)
+  val akkaConfig = ConfigFactory.parseString(configContent(port.toInt+1))
+  implicit val system = ActorSystem.create("DHT", akkaConfig)
 
+  implicit val materializer = ActorMaterializer()
+
+  val connections: Source[IncomingConnection, Future[ServerBinding]] = Tcp().bind(host, port.toInt)
+    .withAttributes(ActorAttributes.supervisionStrategy(Supervision.resumingDecider))
+  val storageActor = system.actorOf(StorageActor.props(configIni.get("id").get.toInt,
+                                                       operationTimeout = operationTimeout,
+                                                       stabilizationInterval = 1.second,
+                                                       isSeed = isSeed,
+                                                       statusUploader = Option(new StatusUploader)),
+                                    name = "storage")
+
+  // if bootstrapper is defined -> send JoinVia message
+  configIni
+    .get("bootstrapper")
+    .foreach(x => system
+               .actorSelection(s"akka.tcp://DHT@$x/user/storage/router")
+               .resolveOne()
+               .foreach(storageActor ! JoinVia(_)))
+
+  def start() = {
     connections.runForeach { connection =>
       val storageActorProxy = Flow[ByteString]
         .via(Framing.lengthField(TCPMessage.sizeFieldLength, TCPMessage.sizeFieldIndex, Int.MaxValue))
         .map(TCPMessage.decode)
         .collect { case Some(x) => x.toStorageActorOperation }
         .log("decoded message")
-        .ask[OperationResponse](storageActor)
+        .mapAsync(2) { op =>
+          (storageActor ? op)
+            .mapTo[OperationResponse]
+            .recover { case _ => op.defaultResponse }
+        }
         .log("received message after processing")
         .map(TCPMessage.encode(_).toByteString)
 
