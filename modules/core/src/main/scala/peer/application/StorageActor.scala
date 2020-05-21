@@ -13,8 +13,8 @@ import scala.concurrent.duration._
 import language.postfixOps
 
 object DistributedHashTablePeer {
-  val ringSize = 64
-  val requiredSuccessorListLength = 2 //TODO: how to define this number
+  val ringSize = 16777216 // Int.MaxValue or sha-1 max value is too big and will not be able to display on dht-monitor web interface
+  val requiredSuccessorListLength = 4 //TODO: how to define this number
 }
 
 trait DistributedHashTablePeer { this: Actor =>
@@ -78,7 +78,7 @@ object StorageActor {
             statusUploader: Option[StatusUploader] = Option.empty,
             r: Int = minNumberOfSuccessfulReads,
             w: Int = minNumberOfSuccessfulWrites): Props =
-    Props(new StorageActor(id,
+    Props(new StorageActor(id % DistributedHashTablePeer.ringSize,
                            operationTimeout,
                            stabilizationTimeout,
                            stabilizationInterval,

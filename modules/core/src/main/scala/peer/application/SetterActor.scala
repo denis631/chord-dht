@@ -54,13 +54,14 @@ class SetterActor(mutatingOperation: MutatingOperation,
     case SuccessorList(successors) =>
       val totalPeers = successorEntry.ref::(successors.map(_.ref))
 
-      if (totalPeers.length < w) {
-        abortHandling()
-      } else {
-        context.become(aggregating(w))
-        val internalMutationOperation = mutatingOperation.toInternal(self)
-        totalPeers.foreach(_ ! internalMutationOperation)
-      }
+      //TODO: predicate will always be true for small amount of nodes in DHT
+      // if (totalPeers.length < w) {
+      // abortHandling()
+      // } else {
+      context.become(aggregating(w))
+      val internalMutationOperation = mutatingOperation.toInternal(self)
+      totalPeers.foreach(_ ! internalMutationOperation)
+    // }
     case AbortTimeout => abortHandling()
   }
 

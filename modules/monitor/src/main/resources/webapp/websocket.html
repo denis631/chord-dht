@@ -53,9 +53,8 @@
          var w = 600, h = 600;
          var radius = Math.min(w, h) / 2;
 
-         // With a key-space that wraps back around to zero from 64, each node will
-         // represent a ~5.625 degree arc on the ring
-         var keyspaceModulus = 64;
+         // With a key-space that wraps back around to zero from int32.max
+         var keyspaceModulus = Math.pow(2, 24) - 1;
          var keyspaceFactor = 360 / keyspaceModulus;
          
          var div = d3.select("body").append("div")

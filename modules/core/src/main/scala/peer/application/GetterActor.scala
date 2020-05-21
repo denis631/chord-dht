@@ -57,12 +57,13 @@ class GetterActor(key: DataStoreKey,
     case SuccessorList(successors) =>
       val totalPeers = successorEntry.ref::(successors.map(_.ref))
 
-      if (totalPeers.length < r) {
-        abortHandling()
-      } else {
-        context.become(aggregating(r, Map.empty))
-        totalPeers.foreach(_ ! InternalGet(key, self))
-      }
+      //TODO: predicate will always be true for small amount of nodes in DHT
+      // if (totalPeers.length < r) {
+      // abortHandling()
+      // } else {
+      context.become(aggregating(r, Map.empty))
+      totalPeers.foreach(_ ! InternalGet(key, self))
+    // }
     case AbortTimeout => abortHandling()
   }
 
