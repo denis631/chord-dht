@@ -31,7 +31,8 @@ import akka.pattern.ask
 
 object TCPMessage {
   val sizeFieldIndex = 0
-  val sizeFieldLength = 2
+  val sizeFieldLengthInBytes = 2
+  val idFieldLengthInBytes = 2
 
   val DHT_PUT_ID: Short = 650
   val DHT_GET_ID: Short = 651
@@ -54,7 +55,7 @@ object TCPMessage {
       case EmptyResponse => ByteString()
 
       case DHTSuccess(k, v) =>
-        val successMessageSize = (4 + k.key.length + v.length).toShort
+        val successMessageSize = (sizeFieldLengthInBytes + idFieldLengthInBytes + k.key.length + v.length).toShort
 
         val byteBuffer = ByteBuffer
           .allocate(successMessageSize)
@@ -66,7 +67,8 @@ object TCPMessage {
         ByteString(byteBuffer.array())
 
       case DHTFailure(k) =>
-        val failureMessageSize: Short = (4 + k.key.length).toShort
+        val failureMessageSize: Short = (sizeFieldLengthInBytes + idFieldLengthInBytes + k.key.length).toShort
+
         val byteBuffer = ByteBuffer
           .allocate(failureMessageSize)
           .putShort(failureMessageSize)
@@ -127,8 +129,12 @@ final case class TCPServer(val configIni: Map[String, String])(implicit val ec: 
 |  logging-filter = "akka.event.slf4j.Slf4jLoggingFilter"
 |}""".stripMargin
 
-  val Array(host, port) = configIni.get("api_address").map(_.split(':').take(2)).get
-  val isSeed = configIni.get("bootstrapper").isEmpty
+  val bootstrapperKey = "bootstrapper"
+  val servingHostPortKey = "listen_address"
+  val idKey = "id"
+
+  val Array(host, port) = configIni.get(servingHostPortKey).map(_.split(':').take(2)).get
+  val isSeed = configIni.get(bootstrapperKey).isEmpty
   val operationTimeout = Timeout(5.seconds) // TODO: add to config?
   implicit val timeout = operationTimeout
 
@@ -139,7 +145,7 @@ final case class TCPServer(val configIni: Map[String, String])(implicit val ec: 
 
   val connections: Source[IncomingConnection, Future[ServerBinding]] = Tcp().bind(host, port.toInt)
     .withAttributes(ActorAttributes.supervisionStrategy(Supervision.resumingDecider))
-  val storageActor = system.actorOf(StorageActor.props(configIni.get("id").get.toInt,
+  val storageActor = system.actorOf(StorageActor.props(configIni.get(idKey).get.toInt,
                                                        operationTimeout = operationTimeout,
                                                        stabilizationInterval = 1.second,
                                                        isSeed = isSeed,
@@ -148,7 +154,7 @@ final case class TCPServer(val configIni: Map[String, String])(implicit val ec: 
 
   // if bootstrapper is defined -> send JoinVia message
   configIni
-    .get("bootstrapper")
+    .get(bootstrapperKey)
     .foreach(x => system
                .actorSelection(s"akka.tcp://DHT@$x/user/storage/router")
                .resolveOne()
@@ -157,7 +163,7 @@ final case class TCPServer(val configIni: Map[String, String])(implicit val ec: 
   def start() = {
     connections.runForeach { connection =>
       val storageActorProxy = Flow[ByteString]
-        .via(Framing.lengthField(TCPMessage.sizeFieldLength, TCPMessage.sizeFieldIndex, Int.MaxValue))
+        .via(Framing.lengthField(TCPMessage.sizeFieldLengthInBytes, TCPMessage.sizeFieldIndex, Int.MaxValue))
         .map(TCPMessage.decode)
         .collect { case Some(x) => x.toStorageActorOperation }
         .log("decoded message")
